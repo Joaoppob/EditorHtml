@@ -4,43 +4,73 @@
 /**
  * CLI do EditorHtml.
  *
- * Comandos:
- *   npx editorhtml servir             serve pecas/ na porta 8811, abre a lista no navegador.
- *   npx editorhtml abrir <caminho>    serve o diretório daquele arquivo, abre direto na peça.
+ *   npx editorhtml servir             serve pecas/ e abre a lista no navegador
+ *   npx editorhtml abrir <caminho>    serve o diretório do arquivo e abre naquela peça
  *
- * Este arquivo é SÓ o CLI: parse de argumento, resolução de caminho, abertura de
- * navegador. Quem sobe o servidor HTTP de verdade (rotas /_api/*, estáticos de
- * editor/motor/temas/pecas) é `editor/servir.js` (ver LINHA-DE-CORTE.md §4). Esse
- * módulo é ele mesmo um CLI:
+ * ---------------------------------------------------------------------------
+ * ESTE ARQUIVO NÃO ESCOLHE PORTA, E ISSO É A COISA MAIS IMPORTANTE AQUI.
  *
- *   node editor/servir.js [porta] [dir-das-pecas] [tema]
+ * Ele já escolheu, e o resultado foi um usuário aberto na tela de outro
+ * projeto. O mecanismo era: abrir um socket de teste em `127.0.0.1:P`, ver se
+ * ligava, fechar, e mandar o servidor subir em P. Mas o servidor não liga em
+ * `127.0.0.1` — ele liga no curinga (`0.0.0.0`/`::`). No Windows dá pra
+ * segurar `127.0.0.1:P` enquanto outro processo já segura `0.0.0.0:P`. Então:
  *
- * — lê porta/diretório/tema de `process.argv` no carregamento do módulo e, quando
- * rodado como `main`, sobe `servidor.listen(...)` sozinho. Por isso este wrapper
- * SPAWNA `editor/servir.js` como subprocesso (mesma forma que rodar na mão), em vez
- * de `require()`-ar e chamar uma função — não existe função fábrica exportada pra
- * chamar com opções.
+ *   1. o teste dizia "P está livre"
+ *   2. o servidor tentava o curinga, tomava EADDRINUSE e MORRIA
+ *   3. o CLI fazia `GET /` em P para "confirmar que subiu"
+ *   4. o servidor ALHEIO respondia 200
+ *   5. o CLI abria o navegador na tela do vizinho
  *
- * URL aberta no navegador depois de subir:
- *   servir:            http://localhost:8811/editor/editar.html
- *   abrir <arquivo>:   http://localhost:8811/editor/editar.html?arq=<nome-sem-extensao>
+ * Duas mentiras encadeadas: validar a porta com um binder que não é o da
+ * produção, e depois confirmar identidade com uma checagem que não distingue
+ * o meu servidor do de outra pessoa.
  *
- * `?arq=` é o mesmo nome de parâmetro que `editor/servir.js` já usa nas rotas
- * `/_api/ler?arq=` e `/_api/camadas?arq=&slug=` (ver `arquivoDePecas()` em
- * `editor/servir.js`) — não confirmado ainda contra `editar.html`/`editar.js`
- * porque esses dois arquivos não existem no repo no momento em que este CLI foi
- * escrito. Se o parâmetro que o cliente lê de fato for outro, ajuste só a
- * constante abaixo.
+ * A cura não foi consertar o teste — foi APAGAR o teste e mudar o dono da
+ * decisão. Hoje:
+ *
+ *   · `editor/servir.js` tenta a porta pedida e anda para a próxima em
+ *     EADDRINUSE. `listen()` é a única frase em que "está livre" e "consegui
+ *     ligar" são a mesma coisa.
+ *   · Ele ANUNCIA onde subiu, numa linha de formato estável.
+ *   · Este CLI LÊ o anúncio. Não deduz, não tenta adivinhar, não chuta URL.
+ *   · E confere que quem responde naquela porta é o processo que ELE subiu,
+ *     comparando um token que ele mesmo injetou no ambiente do filho.
+ *
+ * Se o anúncio não vier, este CLI diz que não subiu e não oferece endereço
+ * nenhum. Endereço errado é pior que endereço nenhum: o primeiro gasta a
+ * confiança de quem seguiu.
+ *
+ * ---------------------------------------------------------------------------
+ * O CONTRATO DE ANÚNCIO (documentado aqui porque é interface entre dois
+ * arquivos, e interface não documentada envelhece calada):
+ *
+ *   Uma linha em stdout, prefixo `EDITORHTML_NO_AR`, um espaço, e JSON:
+ *
+ *     EDITORHTML_NO_AR {"porta":8812,"token":"…","url":"http://127.0.0.1:8812/editor/editar.html",
+ *                       "pecas":"…","raiz":"…","tema":"exemplo","pid":1234}
+ *
+ *   Quem lê faz `startsWith(SENTINELA)` e `JSON.parse` do resto. Nada de casar
+ *   número dentro de prosa: mensagem para gente muda, contrato não.
+ *
+ * VARIÁVEIS DE AMBIENTE
+ *   EDITORHTML_PORTA          porta pedida (padrão 8811). O servidor pode subir
+ *                             adiante desta se ela estiver ocupada.
+ *   EDITORHTML_SEM_NAVEGADOR  se definida, não abre o navegador. Existe para as
+ *                             provas: uma suíte que abre 6 abas do Chrome é uma
+ *                             suíte que ninguém roda duas vezes.
  */
 
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+const crypto = require('crypto');
 const { exec, spawn } = require('child_process');
 
-const PARAM_ABRIR = 'arq'; // ver aviso acima — inferido das rotas server-side já existentes
-
-const PORTA_PADRAO = 8811;
-let PORTA = PORTA_PADRAO;   /* resolvida em tempo de execucao — ver `escolherPorta` */
+const PARAM_ABRIR = 'arq';
+const SENTINELA = 'EDITORHTML_NO_AR';
+const PORTA_PEDIDA = Number(process.env.EDITORHTML_PORTA) || 8811;
+const ESPERA_MS = 20000;
 const RAIZ = path.resolve(__dirname, '..');
 const DIR_PECAS_PADRAO = path.join(RAIZ, 'pecas');
 
@@ -53,11 +83,13 @@ Uso:
   npx editorhtml abrir <caminho>     serve o diretório do arquivo e abre direto naquela peça
   npx editorhtml --help              esta mensagem
 
-Porta padrão: ${PORTA}
+Porta pedida: ${PORTA_PEDIDA} (o servidor anda para a próxima livre se estiver ocupada,
+e o endereço real é impresso quando ele sobe — não presuma a porta).
 `);
 }
 
 function abrirNavegador(url) {
+  if (process.env.EDITORHTML_SEM_NAVEGADOR) return;
   const comando =
     process.platform === 'win32'
       ? `start "" "${url}"`
@@ -71,7 +103,39 @@ function abrirNavegador(url) {
   });
 }
 
-function subirServidor(dirPecas) {
+/* ---------------------------------------------------------------------------
+   A CONFERÊNCIA DE IDENTIDADE. Não pergunta "tem alguém aí?" — pergunta "é
+   você?". A diferença entre as duas é um usuário editando o arquivo de outro
+   projeto sem saber.                                                          */
+function conferirIdentidade(anuncio, token, pronto, falhou) {
+  const req = http.get(
+    { host: '127.0.0.1', port: anuncio.porta, path: '/_api/identidade', timeout: 3000 },
+    (res) => {
+      let b = '';
+      res.on('data', (d) => { b += d; });
+      res.on('end', () => {
+        let j;
+        try { j = JSON.parse(b); } catch (e) { return falhou('a porta ' + anuncio.porta +
+          ' respondeu, mas não com a identidade deste editor'); }
+        if (!j || j.token !== token) {
+          return falhou('quem respondeu na porta ' + anuncio.porta + ' NÃO é o servidor que eu subi' +
+            (j && j.pecas ? ' (ele serve ' + j.pecas + ')' : '') +
+            '. Não vou te mandar para a tela de outra pessoa.');
+        }
+        pronto(j);
+      });
+    }
+  );
+  req.on('error', (e) => falhou('não consegui falar com a porta ' + anuncio.porta + ': ' + e.message));
+  req.on('timeout', () => { req.destroy(); falhou('a porta ' + anuncio.porta + ' não respondeu a tempo'); });
+}
+
+/* ---------------------------------------------------------------------------
+   SUBIR O SERVIDOR E ESPERAR O ANÚNCIO DELE.
+   O filho tem stdout em `pipe` (e não `inherit`) porque o anúncio é lido daqui;
+   tudo o que ele imprime continua aparecendo para quem chamou, repassado linha
+   a linha, menos a linha-contrato, que é ruído para gente.                     */
+function subirServidor(dirPecas, aoSubir) {
   const caminhoServir = path.join(RAIZ, 'editor', 'servir.js');
   if (!fs.existsSync(caminhoServir)) {
     console.error(
@@ -81,78 +145,81 @@ function subirServidor(dirPecas) {
     );
     process.exit(1);
   }
-  const processo = spawn(process.execPath, [caminhoServir, String(PORTA), dirPecas], {
-    stdio: 'inherit',
+
+  const token = crypto.randomBytes(9).toString('hex');
+  const processo = spawn(
+    process.execPath,
+    [caminhoServir, String(PORTA_PEDIDA), dirPecas],
+    { stdio: ['ignore', 'pipe', 'pipe'],
+      env: Object.assign({}, process.env, { EDITORHTML_TOKEN: token }) }
+  );
+
+  let anunciou = false;
+  let resto = '';
+  const relogio = setTimeout(() => {
+    if (anunciou) return;
+    console.error('[editorhtml] o servidor não anunciou que subiu em ' + (ESPERA_MS / 1000) +
+      's. NÃO vou abrir endereço nenhum — um endereço chutado pode ser a tela de ' +
+      'outro processo. Veja o log acima para o motivo.');
+    try { processo.kill(); } catch (e) { /* já morreu */ }
+    process.exitCode = 1;
+  }, ESPERA_MS);
+
+  processo.stdout.on('data', (d) => {
+    resto += d.toString();
+    let corte;
+    while ((corte = resto.indexOf('\n')) >= 0) {
+      const linha = resto.slice(0, corte).replace(/\r$/, '');
+      resto = resto.slice(corte + 1);
+      if (linha.startsWith(SENTINELA + ' ')) {
+        let anuncio;
+        try { anuncio = JSON.parse(linha.slice(SENTINELA.length + 1)); }
+        catch (e) {
+          console.error('[editorhtml] o servidor anunciou numa linha que eu não consegui ler: ' + e.message);
+          continue;
+        }
+        anunciou = true;
+        clearTimeout(relogio);
+        conferirIdentidade(anuncio, token,
+          () => aoSubir(anuncio),
+          (motivo) => {
+            console.error('[editorhtml] ' + motivo);
+            console.error('[editorhtml] não abri o navegador.');
+            try { processo.kill(); } catch (e) { /* já morreu */ }
+            process.exitCode = 1;
+          });
+        continue;
+      }
+      console.log(linha);
+    }
   });
+  processo.stderr.on('data', (d) => process.stderr.write(d));
+
   processo.on('exit', (codigo) => {
+    clearTimeout(relogio);
+    if (!anunciou) {
+      console.error('[editorhtml] o servidor saiu antes de anunciar que subiu' +
+        (codigo == null ? '' : ' (código ' + codigo + ')') +
+        '. Nenhum endereço foi aberto.');
+      process.exit(codigo || 1);
+    }
     if (codigo && codigo !== 0) process.exit(codigo);
   });
+
   return processo;
 }
 
-function esperarServidorNoAr(callback, tentativas = 40) {
-  const http = require('http');
-  const tentar = (restantes) => {
-    const req = http.get({ host: 'localhost', port: PORTA, path: '/', timeout: 500 }, (res) => {
-      res.resume();
-      callback();
-    });
-    req.on('error', () => {
-      if (restantes <= 0) {
-        console.error(`[editorhtml] servidor não respondeu em localhost:${PORTA} a tempo — confira o log acima.`);
-        return;
-      }
-      setTimeout(() => tentar(restantes - 1), 150);
-    });
-    req.on('timeout', () => req.destroy());
-  };
-  tentar(tentativas);
-}
-
-
-/* PORTA OCUPADA NAO PODE VIRAR PERGUNTA SEM RESPOSTA.
-   A porta era fixa. Quando outra coisa ja estava na 8811 — outra sessao do
-   editor, ou um servidor esquecido — o comando morria, e um agente operando
-   sozinho ficava com duas saidas ruins: matar um processo que nao e dele, ou
-   parar e perguntar. Medido num teste real com um agente sem contexto: ele
-   escolheu parar e perguntar, corretamente, e a tarefa nao andou.
-
-   Agora a porta se DESLOCA: tenta a padrao, e se estiver ocupada segue para a
-   proxima livre, ate 20 adiante. Ninguem precisa matar nada, e o comando diz
-   em qual porta subiu quando nao foi a padrao — silencio aqui faria o usuario
-   procurar na 8811 uma tela que esta noutro lugar. */
-function escolherPorta(inicial, tentativas, callback) {
-  const net = require('net');
-  const tentar = (porta, restantes) => {
-    if (restantes <= 0) {
-      console.error('[editorhtml] nenhuma porta livre entre ' + inicial +
-        ' e ' + (inicial + tentativas) + '. Libere uma e tente de novo.');
-      process.exit(1);
-    }
-    const s = net.createServer();
-    s.once('error', (e) => {
-      if (e && e.code === 'EADDRINUSE') return tentar(porta + 1, restantes - 1);
-      console.error('[editorhtml] nao consegui testar a porta ' + porta + ': ' + e.message);
-      process.exit(1);
-    });
-    s.once('listening', () => s.close(() => callback(porta)));
-    s.listen(porta, '127.0.0.1');
-  };
-  tentar(inicial, tentativas);
+/* a linha que este CLI imprime quando tudo deu certo. Formato estável também —
+   as provas leem daqui para conferir QUAL url foi entregue. */
+function anunciarAoUsuario(url, oQue) {
+  console.log('[editorhtml] no ar em ' + url + (oQue ? '  ·  ' + oQue : ''));
 }
 
 function comandoServir() {
-  escolherPorta(PORTA_PADRAO, 20, (porta) => { PORTA = porta; servirAgora(); });
-}
-
-function servirAgora() {
-  if (PORTA !== PORTA_PADRAO) {
-    console.log('[editorhtml] a porta ' + PORTA_PADRAO + ' estava ocupada — subindo na ' + PORTA + '.');
-  }
-  subirServidor(DIR_PECAS_PADRAO);
-  const urlBase = `http://localhost:${PORTA}/editor/editar.html`;
-  console.log(`[editorhtml] servindo ${DIR_PECAS_PADRAO} em ${urlBase}`);
-  esperarServidorNoAr(() => abrirNavegador(urlBase));
+  subirServidor(DIR_PECAS_PADRAO, (a) => {
+    anunciarAoUsuario(a.url, 'servindo ' + a.pecas);
+    abrirNavegador(a.url);
+  });
 }
 
 function comandoAbrir(caminhoArg) {
@@ -168,20 +235,11 @@ function comandoAbrir(caminhoArg) {
   const dirAlvo = path.dirname(caminhoAbsoluto);
   const nomeSemExtensao = path.basename(caminhoAbsoluto, path.extname(caminhoAbsoluto));
 
-  escolherPorta(PORTA_PADRAO, 20, (porta) => {
-    PORTA = porta;
-    if (PORTA !== PORTA_PADRAO) {
-      console.log('[editorhtml] a porta ' + PORTA_PADRAO + ' estava ocupada — subindo na ' + PORTA + '.');
-    }
-    abrirAgora(dirAlvo, nomeSemExtensao);
+  subirServidor(dirAlvo, (a) => {
+    const url = a.url + '?' + PARAM_ABRIR + '=' + encodeURIComponent(nomeSemExtensao);
+    anunciarAoUsuario(url, 'abrindo ' + nomeSemExtensao + ' de ' + a.pecas);
+    abrirNavegador(url);
   });
-}
-
-function abrirAgora(dirAlvo, nomeSemExtensao) {
-  subirServidor(dirAlvo);
-  const urlBase = `http://localhost:${PORTA}/editor/editar.html?${PARAM_ABRIR}=${encodeURIComponent(nomeSemExtensao)}`;
-  console.log(`[editorhtml] servindo ${dirAlvo} — abrindo ${nomeSemExtensao} em ${urlBase}`);
-  esperarServidorNoAr(() => abrirNavegador(urlBase));
 }
 
 function main() {
@@ -191,16 +249,8 @@ function main() {
     ajuda();
     process.exit(0);
   }
-
-  if (comando === 'servir') {
-    comandoServir();
-    return;
-  }
-
-  if (comando === 'abrir') {
-    comandoAbrir(resto[0]);
-    return;
-  }
+  if (comando === 'servir') { comandoServir(); return; }
+  if (comando === 'abrir') { comandoAbrir(resto[0]); return; }
 
   console.error(`[editorhtml] comando desconhecido: "${comando}"`);
   ajuda();

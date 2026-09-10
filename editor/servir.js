@@ -195,6 +195,22 @@ const servidor = http.createServer(async (req, res) => {
   const rota = u.pathname;
 
   /* ---------- API ---------- */
+  /* QUEM É VOCÊ. Um `GET /` que responde 200 prova que ALGUÉM está na
+     porta, não que é o servidor que eu subi — foi essa confusão que
+     mandou um usuário para a tela de outro projeto. Aqui quem subiu o
+     processo compara o token que ele mesmo injetou; servidor vizinho não
+     tem como devolver um segredo que nunca viu.
+
+     O token não é segurança: é IDENTIDADE. Ele não protege o editor de
+     ninguém, ele só responde "esta porta é a minha?" para quem já sabe a
+     resposta certa. Por isso pode ser lido por qualquer um que alcance a
+     porta, e por isso o diretório servido vem junto — em diagnóstico à
+     mão, ver a pasta errada é mais rápido que comparar hexadecimal. */
+  if (rota === '/_api/identidade') {
+    return json(res, 200, { ok: true, token: TOKEN, pecas: PECAS, raiz: RAIZ,
+      tema: NOME_TEMA, porta: (servidor.address() || {}).port || null, pid: process.pid });
+  }
+
   if (rota === '/_api/inventario') {
     try { return json(res, 200, inventario()); }
     catch (e) { return json(res, 500, { ok: false, erro: 'inventario', msg: e.message }); }
@@ -302,25 +318,95 @@ const servidor = http.createServer(async (req, res) => {
   res.end('404 ' + rel);
 });
 
-/* PORTA OCUPADA É ESTADO NOMEADO. Um stack trace de EADDRINUSE faz a
-   pessoa procurar defeito no editor quando o problema é outro processo. */
-servidor.on('error', err => {
-  if (err && err.code === 'EADDRINUSE') {
-    console.error('a porta ' + PORTA + ' já está ocupada por outro processo.');
-    console.error('Suba noutra porta:  node editor/servir.js 8812');
-    process.exit(1);
-  }
-  throw err;
-});
+/* =====================================================================
+   A PORTA SE ESCOLHE AQUI, E SÓ AQUI.
 
-if (require.main === module) {
-  servidor.listen(PORTA, () => {
-    console.log('editor servindo ' + RAIZ);
-    console.log('  peças: ' + PECAS);
-    console.log('  tema:  ' + NOME_TEMA);
-    console.log('  http://localhost:' + PORTA + '/editor/editar.html');
-    console.log('  escrita liberada só nos .js do diretório de peças');
+   Antes quem escolhia era o CLI: ele abria um socket de teste, via se
+   ligava, fechava, e mandava o servidor subir naquela porta. Duas
+   ligações diferentes decidindo a mesma coisa — e elas não ligavam do
+   mesmo jeito. O teste ligava em `127.0.0.1`, a produção liga no curinga
+   (`0.0.0.0`/`::`). No Windows dá pra segurar `127.0.0.1:P` enquanto
+   outro processo já segura `0.0.0.0:P`; então o teste dizia "livre", o
+   servidor tentava o curinga, tomava `EADDRINUSE` e morria.
+
+   O estrago não foi o servidor morrer — foi o que veio depois: o CLI
+   confirmava "está no ar" com um `GET /` naquela porta, o servidor
+   ALHEIO respondia 200, e o usuário era mandado para a tela de outra
+   pessoa. Medido num teste frio: o editor abriu servindo a pasta de
+   outro projeto.
+
+   A cura não é consertar o teste, é APAGAR o teste. `listen()` é a única
+   frase em que "está livre" e "consegui ligar" são a mesma coisa. Quem
+   liga, escolhe. Não há segundo binder para discordar do primeiro.
+   ===================================================================== */
+const TENTATIVAS = 20;
+const SENTINELA = 'EDITORHTML_NO_AR';
+
+/* A IDENTIDADE DESTE SERVIDOR, para quem o subiu poder provar que a porta
+   que responde é a DELE. Vem do ambiente quando o CLI a injeta (é ele que
+   precisa comparar); nasce aqui quando alguém roda o servidor na mão. */
+const TOKEN = process.env.EDITORHTML_TOKEN ||
+  crypto.randomBytes(9).toString('hex');
+
+/* sobe tentando a porta pedida e andando para a próxima em EADDRINUSE.
+   O `listen` é o MESMO que a produção usa — não existe variante de teste. */
+function subir(porta, restantes, pronto, desistiu) {
+  function erroAoLigar(err) {
+    if (err && err.code === 'EADDRINUSE') {
+      if (restantes <= 0) return desistiu(porta, err);
+      return subir(porta + 1, restantes - 1, pronto, desistiu);
+    }
+    desistiu(porta, err);
+  }
+  servidor.once('error', erroAoLigar);
+  servidor.listen(porta, function () {
+    servidor.removeListener('error', erroAoLigar);
+    /* depois de no ar, erro é erro de runtime e não de escolha de porta */
+    servidor.on('error', e => { throw e; });
+    pronto(servidor.address().port);
   });
 }
 
-module.exports = { servidor, inventario, arquivoDePecas, patchDe, preparar, PORTA, PECAS, RAIZ };
+if (require.main === module) {
+  subir(PORTA, TENTATIVAS, porta => {
+    /* O ANÚNCIO, EM FORMATO ESTÁVEL — o contrato com o CLI.
+       Uma linha, um prefixo que não colide com prosa, e JSON depois dele.
+       Quem lê faz `linha.startsWith(SENTINELA)` e `JSON.parse` do resto;
+       não precisa casar número com expressão regular em texto humano, que
+       é como um anúncio de porta envelhece sem ninguém perceber.
+
+       O host é `127.0.0.1` de propósito, e não `localhost`: `localhost`
+       pode resolver para IPv4 ou IPv6 conforme a máquina, e a rodada
+       inteira em que este código nasceu foi sobre ambiguidade de bind.
+       Um endereço literal não tem coin flip. */
+    const url = 'http://127.0.0.1:' + porta + '/editor/editar.html';
+    console.log(SENTINELA + ' ' + JSON.stringify({
+      porta, token: TOKEN, url, pecas: PECAS, raiz: RAIZ, tema: NOME_TEMA, pid: process.pid
+    }));
+    /* e as linhas para gente, depois — a máquina lê a de cima */
+    console.log('editor servindo ' + RAIZ);
+    console.log('  peças: ' + PECAS);
+    console.log('  tema:  ' + NOME_TEMA);
+    if (porta !== PORTA) {
+      console.log('  a porta ' + PORTA + ' estava ocupada — subi na ' + porta + '.');
+    }
+    console.log('  ' + url);
+    console.log('  escrita liberada só nos .js do diretório de peças');
+  }, (porta, err) => {
+    /* DESISTIR TAMBÉM É ESTADO NOMEADO. Sem porta não há editor, e o que
+       não pode acontecer é o processo sumir deixando quem chamou achando
+       que subiu. */
+    if (err && err.code === 'EADDRINUSE') {
+      console.error('[editorhtml] nenhuma porta livre entre ' + PORTA + ' e ' +
+        (PORTA + TENTATIVAS) + '. Libere uma, ou peça outra: ' +
+        'node editor/servir.js <porta>');
+    } else {
+      console.error('[editorhtml] não consegui subir na porta ' + porta + ': ' +
+        (err && err.message));
+    }
+    process.exit(1);
+  });
+}
+
+module.exports = { servidor, inventario, arquivoDePecas, patchDe, preparar,
+                   subir, SENTINELA, TOKEN, PORTA, PECAS, RAIZ };
