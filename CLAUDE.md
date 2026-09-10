@@ -79,8 +79,14 @@ npx editorhtml servir              # serve pecas/ inteira, abre a lista
 npx editorhtml abrir <caminho.js>  # serve o diretório daquele arquivo, abre direto na peça
 ```
 
-Porta fixa: **8811**. O comando abre o navegador padrão sozinho; se não
-conseguir (ambiente sem tela), ele imprime a URL — abra manualmente.
+Porta: **8811 por padrão, e ela se desloca sozinha.** Se a 8811 estiver
+ocupada — outra sessão do editor, um servidor esquecido — o comando sobe na
+próxima livre e avisa em qual. **Você nunca precisa encerrar processo de
+ninguém para usar o editor.** O comando abre o navegador sozinho; se não
+conseguir (ambiente sem tela), imprime a URL — abra manualmente.
+
+Leia a URL que o comando imprimiu, não a que você esperava: quando a porta
+se desloca, a tela está na porta nova.
 
 Zero dependência de produção — `npx` funciona sem `npm install` prévio. Se
 reclamar de bin não resolvido, rode `npm install` uma vez na raiz e tente de
@@ -105,9 +111,9 @@ arquivo — o editor serve o diretório dele, não precisa estar dentro de
 1. Ache o arquivo `.js` da peça (pergunte o caminho se não estiver óbvio —
    não adivinhe qual arquivo entre vários).
 2. Rode `npx editorhtml abrir <caminho>`.
-3. Confirme a URL que abriu (`http://localhost:8811/...`) e que o navegador
-   subiu. Se a porta 8811 já estiver ocupada, é outra sessão do editor — avise
-   o usuário antes de encerrar qualquer processo.
+3. Confirme a URL que o comando IMPRIMIU e que o navegador subiu. Se a porta
+   padrão estava ocupada, ele já subiu noutra e disse qual — não encerre
+   processo de ninguém, e não pare para perguntar: siga com a URL impressa.
 
 Para instruções operacionais detalhadas (o que fazer se der erro, como
 confirmar que subiu), use a skill `abrir-editor` — ela é o roteiro

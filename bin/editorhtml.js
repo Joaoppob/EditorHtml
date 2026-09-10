@@ -39,7 +39,8 @@ const { exec, spawn } = require('child_process');
 
 const PARAM_ABRIR = 'arq'; // ver aviso acima — inferido das rotas server-side já existentes
 
-const PORTA = 8811;
+const PORTA_PADRAO = 8811;
+let PORTA = PORTA_PADRAO;   /* resolvida em tempo de execucao — ver `escolherPorta` */
 const RAIZ = path.resolve(__dirname, '..');
 const DIR_PECAS_PADRAO = path.join(RAIZ, 'pecas');
 
@@ -108,7 +109,46 @@ function esperarServidorNoAr(callback, tentativas = 40) {
   tentar(tentativas);
 }
 
+
+/* PORTA OCUPADA NAO PODE VIRAR PERGUNTA SEM RESPOSTA.
+   A porta era fixa. Quando outra coisa ja estava na 8811 — outra sessao do
+   editor, ou um servidor esquecido — o comando morria, e um agente operando
+   sozinho ficava com duas saidas ruins: matar um processo que nao e dele, ou
+   parar e perguntar. Medido num teste real com um agente sem contexto: ele
+   escolheu parar e perguntar, corretamente, e a tarefa nao andou.
+
+   Agora a porta se DESLOCA: tenta a padrao, e se estiver ocupada segue para a
+   proxima livre, ate 20 adiante. Ninguem precisa matar nada, e o comando diz
+   em qual porta subiu quando nao foi a padrao — silencio aqui faria o usuario
+   procurar na 8811 uma tela que esta noutro lugar. */
+function escolherPorta(inicial, tentativas, callback) {
+  const net = require('net');
+  const tentar = (porta, restantes) => {
+    if (restantes <= 0) {
+      console.error('[editorhtml] nenhuma porta livre entre ' + inicial +
+        ' e ' + (inicial + tentativas) + '. Libere uma e tente de novo.');
+      process.exit(1);
+    }
+    const s = net.createServer();
+    s.once('error', (e) => {
+      if (e && e.code === 'EADDRINUSE') return tentar(porta + 1, restantes - 1);
+      console.error('[editorhtml] nao consegui testar a porta ' + porta + ': ' + e.message);
+      process.exit(1);
+    });
+    s.once('listening', () => s.close(() => callback(porta)));
+    s.listen(porta, '127.0.0.1');
+  };
+  tentar(inicial, tentativas);
+}
+
 function comandoServir() {
+  escolherPorta(PORTA_PADRAO, 20, (porta) => { PORTA = porta; servirAgora(); });
+}
+
+function servirAgora() {
+  if (PORTA !== PORTA_PADRAO) {
+    console.log('[editorhtml] a porta ' + PORTA_PADRAO + ' estava ocupada — subindo na ' + PORTA + '.');
+  }
   subirServidor(DIR_PECAS_PADRAO);
   const urlBase = `http://localhost:${PORTA}/editor/editar.html`;
   console.log(`[editorhtml] servindo ${DIR_PECAS_PADRAO} em ${urlBase}`);
@@ -128,6 +168,16 @@ function comandoAbrir(caminhoArg) {
   const dirAlvo = path.dirname(caminhoAbsoluto);
   const nomeSemExtensao = path.basename(caminhoAbsoluto, path.extname(caminhoAbsoluto));
 
+  escolherPorta(PORTA_PADRAO, 20, (porta) => {
+    PORTA = porta;
+    if (PORTA !== PORTA_PADRAO) {
+      console.log('[editorhtml] a porta ' + PORTA_PADRAO + ' estava ocupada — subindo na ' + PORTA + '.');
+    }
+    abrirAgora(dirAlvo, nomeSemExtensao);
+  });
+}
+
+function abrirAgora(dirAlvo, nomeSemExtensao) {
   subirServidor(dirAlvo);
   const urlBase = `http://localhost:${PORTA}/editor/editar.html?${PARAM_ABRIR}=${encodeURIComponent(nomeSemExtensao)}`;
   console.log(`[editorhtml] servindo ${dirAlvo} — abrindo ${nomeSemExtensao} em ${urlBase}`);
