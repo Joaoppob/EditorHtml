@@ -1,0 +1,293 @@
+/* =====================================================================
+   editar.css — o CROMO do editor.
+
+   A SEPARAÇÃO, EM CSS. Nada aqui é o sistema visual da peça, e isso é
+   deliberado: o editor é FERRAMENTA, a peça é OBRA. Se o cromo usasse a
+   tipografia e as cores do tema, duas coisas quebrariam ao mesmo tempo —
+   o olho perderia a fronteira entre o que é peça e o que é instrumento, e
+   uma marcação na cor do tema ficaria INVISÍVEL em cima de uma camada
+   daquela cor. Por isso: fonte de sistema, cinza de ferramenta, e uma cor
+   de marcação escolhida para não existir na paleta de ninguém.
+
+   `--sel: #FF2FD0`. Magenta é a aposta: ele quase nunca aparece como cor
+   de marca, e é o jeito mais honesto de a marcação nunca se confundir com
+   tinta da peça. Se o seu projeto usa magenta, troque esta linha — a
+   ferramenta pode ter cor própria; a peça não pode ganhar cor nova.
+   ===================================================================== */
+:root{
+  --sel:#FF2FD0; --sel-fraca:rgba(255,47,208,.16);
+  --ui-fundo:#1A1A1C; --ui-caixa:#242427; --ui-borda:#3A3A3F;
+  --ui-txt:#E6E6E8; --ui-fraco:#9A9AA2; --ui-ok:#5BE08A; --ui-alerta:#FFC93D; --ui-erro:#FF6B5B;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--ui-fundo);color:var(--ui-txt);
+  font:13px/1.45 ui-sans-serif,system-ui,"Segoe UI",sans-serif;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
+  clip-path:inset(50%);white-space:nowrap}
+
+/* ---------- esqueleto ---------- */
+#app{display:grid;grid-template-columns:288px 1fr 300px;grid-template-rows:auto 1fr auto;
+  height:100%;gap:1px;background:var(--ui-borda)}
+#barra{grid-column:1/-1;background:var(--ui-caixa);display:flex;align-items:center;
+  gap:12px;padding:8px 12px;flex-wrap:wrap}
+#lista{background:var(--ui-caixa);overflow:auto;padding:6px}
+#meio{background:#101012;overflow:auto;position:relative;display:grid;place-items:center;padding:28px}
+#painel{background:var(--ui-caixa);overflow:auto;padding:10px}
+#rodape{grid-column:1/-1;background:var(--ui-caixa);padding:7px 12px;display:flex;
+  align-items:center;gap:14px;min-height:34px}
+
+/* TELA ESTREITA. O editor é ferramenta de mouse e de tela grande, e fingir
+   que ele cabe num celular seria promessa falsa. O que ele deve é não
+   virar papelão em 900 px: as três colunas viram duas, e a estante e a
+   lista dividem a mesma faixa. */
+@media (max-width:1100px){
+  #app{grid-template-columns:230px 1fr 250px}
+}
+@media (max-width:900px){
+  #app{grid-template-columns:1fr;grid-template-rows:auto 44vh 1fr auto}
+  #lista{max-height:34vh}
+}
+
+h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ui-fraco);
+  margin:2px 0 8px;font-weight:600}
+
+/* ---------- barra ---------- */
+select,button{background:#2E2E33;border:1px solid var(--ui-borda);border-radius:5px;
+  padding:5px 9px;cursor:pointer}
+button:hover:not(:disabled){background:#3A3A41}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primaria{background:var(--sel);border-color:var(--sel);color:#12000E;font-weight:600}
+button.primaria:hover:not(:disabled){background:#FF57DA}
+/* BOTÃO DESABILITADO COM CARA DE HABILITADO É PIOR QUE BOTÃO DESABILITADO.
+   `opacity:.4` sozinho não dá conta do primário: magenta cheio a 40% sobre
+   fundo escuro ainda lê como "o botão principal, aceso", a pessoa clica, e
+   ela conclui que a ferramenta quebrou — não que a ação não está
+   disponível. Desabilitado tem de perder a COR, não só a força. */
+button.primaria:disabled{background:#2E2E33;border-color:var(--ui-borda);
+  color:var(--ui-txt);font-weight:400;opacity:.45}
+:is(button,select,input,textarea,[tabindex]):focus-visible{
+  outline:2px solid var(--sel);outline-offset:2px}
+.sep{width:1px;height:22px;background:var(--ui-borda)}
+
+/* ---------- palco ---------- */
+/* O ENVELOPE NÃO RECORTA. `.pc` tem `overflow:hidden` por lei da peça, e
+   isso está certo — mas camada arrastada para fora do quadro precisa
+   continuar VISÍVEL para se poder trazê-la de volta com o mouse. Por isso
+   a marcação vive num envelope irmão, fora do recorte. */
+#envelope{position:relative;transform-origin:0 0}
+#palco{position:relative}
+#marcas{position:absolute;inset:0;pointer-events:none}
+
+/* A MARCAÇÃO NÃO PODE ESCONDER A PEÇA. Preencher o retângulo com magenta
+   a 16% deixava a camada inteira rosada enquanto era arrastada — quer
+   dizer, no momento exato em que se está julgando a composição, a
+   ferramenta estava por cima da obra. Fica só o contorno (duplo, para
+   vencer fundo escuro E fundo claro sem pedir cor nova ao tema).
+   Preenchimento sobrou só onde ele é a única forma de a camada existir
+   para o olho: a reserva, que não imprime nada. */
+.marca{position:absolute;pointer-events:none;
+  outline:1.5px solid var(--sel);box-shadow:0 0 0 1px rgba(0,0,0,.55) inset,0 0 0 3px rgba(0,0,0,.28)}
+.marca.fora{outline-style:dashed}
+.marca.invisivel{background:repeating-linear-gradient(45deg,
+  var(--sel-fraca) 0 7px,transparent 7px 14px)}
+.alca{position:absolute;width:11px;height:11px;background:var(--sel);
+  border:1.5px solid #12000E;border-radius:2px;pointer-events:auto}
+.alca.n,.alca.s{cursor:ns-resize}
+.alca.e,.alca.w{cursor:ew-resize}
+.alca.ne,.alca.sw{cursor:nesw-resize}.alca.nw,.alca.se{cursor:nwse-resize}
+.leitura{position:absolute;background:#12000E;color:var(--sel);border:1px solid var(--sel);
+  border-radius:4px;padding:2px 6px;font:11px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  white-space:nowrap;pointer-events:none;z-index:9}
+
+/* ---------- lista de camadas ---------- */
+.cam{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;
+  border-radius:5px;padding:5px 7px;margin-bottom:2px;cursor:pointer;line-height:1.3}
+.cam:hover{background:#2E2E33}
+.cam[aria-current="true"]{background:var(--sel-fraca);border-color:var(--sel)}
+.cam .id{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ui-fraco)}
+.cam .nm{display:block;margin-top:1px}
+.cam .av{display:block;font-size:11px;color:var(--ui-alerta);margin-top:2px}
+.cam .mudou{color:var(--sel);font-weight:700}
+
+/* ---------- painel ---------- */
+.grupo{border-top:1px solid var(--ui-borda);padding-top:9px;margin-top:9px}
+.grupo:first-child{border-top:0;margin-top:0}
+input[type=number],input[type=text],input[type=search],textarea{background:#141416;
+  border:1px solid var(--ui-borda);border-radius:4px;padding:4px 6px;width:100%;
+  font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+textarea{min-height:76px;resize:vertical;line-height:1.5;font-family:inherit;font-size:12px}
+.par{display:flex;gap:6px}
+.par>div{flex:1;min-width:0}
+.par small,.grupo small{display:block;color:var(--ui-fraco);font-size:10px;margin-bottom:2px}
+.nativo{color:var(--ui-fraco);font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  margin-top:-2px;margin-bottom:7px}
+
+/* o FATO: o que esta tela não muda, e de onde vem */
+.fato{background:#1C1C1F;border-left:2px solid var(--ui-borda);padding:6px 9px;
+  margin-bottom:6px;color:var(--ui-fraco);font-size:12px;line-height:1.5}
+.fato b{color:var(--ui-txt);font-weight:600}
+.aviso{background:#2A2415;border-left:2px solid var(--ui-alerta);padding:6px 9px;
+  margin-bottom:6px;color:#F0DFAE;font-size:12px;line-height:1.5}
+
+/* ---------- o SELO: estado da escrita, único canal ----------
+   Com escrita contínua não há mais um botão que confirme o ato, então o
+   selo é a ÚNICA coisa que responde "e aí, gravou?". Ele nunca some, nunca
+   fica vago, e cada estado tem cor E palavra — cor sozinha não serve pra
+   quem não separa verde de vermelho. */
+#selo{font:11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:5px 9px;
+  border-radius:20px;border:1px solid var(--ui-borda);white-space:nowrap}
+#selo[data-e="salvo"]{color:var(--ui-ok);border-color:#2C6B45;background:#12241A}
+#selo[data-e="salvando"]{color:var(--ui-txt);border-color:var(--ui-borda);background:#2E2E33}
+#selo[data-e="pendente"]{color:var(--ui-alerta);border-color:#6B5A22;background:#241F12}
+#selo[data-e="recusado"]{color:#12000E;border-color:var(--ui-erro);background:var(--ui-erro);
+  font-weight:700}
+#selo[data-e="parado"]{color:var(--ui-fraco);border-color:var(--ui-borda)}
+#rot-auto{display:flex;align-items:center;gap:5px;color:var(--ui-fraco);cursor:pointer;
+  font-size:12px}
+#rot-auto input{accent-color:var(--sel);cursor:pointer}
+
+/* ---------- BLOQUEIO ----------
+   Cobre o palco. Não fecha por clique fora, não tem “×”, e a peça fica
+   escondida atrás — porque enquanto a escrita está recusada, continuar
+   arrastando produz trabalho que não vai pro disco. */
+#bloqueio{position:absolute;inset:0;background:rgba(8,8,10,.93);z-index:40;
+  display:grid;place-items:center;padding:24px}
+/* `display:grid` acima VENCE o `display:none` que o atributo `hidden` traz
+   da folha do navegador — sem esta linha o bloqueio fica invisível e mesmo
+   assim COBRE o palco, comendo todo clique. O sintoma é um arrasto que
+   simplesmente não acontece, com `el.hidden === true` no DOM dizendo que
+   está tudo bem: o atributo mente sobre o estado visual. Quem pega isso é
+   `elementFromPoint`, não a leitura da propriedade. */
+#bloqueio[hidden]{display:none}
+#bloqueio .caixa{max-width:560px;background:var(--ui-caixa);
+  border:2px solid var(--ui-erro);border-radius:9px;padding:20px 22px}
+#bloqueio .etiqueta{margin:0 0 8px;font:700 11px/1 ui-monospace,Menlo,Consolas,monospace;
+  letter-spacing:.14em;text-transform:uppercase;color:#12000E;background:var(--ui-erro);
+  display:inline-block;padding:5px 9px;border-radius:3px}
+#bloqueio h2{margin:0 0 8px;font-size:17px;color:var(--ui-txt);text-transform:none;
+  letter-spacing:0}
+#bloqueio p{margin:0 0 12px;color:var(--ui-txt);line-height:1.55}
+#bloqueio-acoes{display:flex;gap:8px;flex-wrap:wrap}
+#bloqueio-acoes button{padding:8px 13px}
+#bloqueio-cola{max-height:190px;overflow:auto;background:#141416;border:1px solid var(--ui-borda);
+  border-radius:5px;padding:10px;margin:12px 0 0;
+  font:11px/1.55 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;user-select:all}
+
+#estado{flex:1;min-width:0}
+#estado.ok{color:var(--ui-ok)}#estado.erro{color:var(--ui-erro)}#estado.alerta{color:var(--ui-alerta)}
+#estado.trabalhando{color:var(--ui-fraco)}
+.contagem{font:11px ui-monospace,Menlo,Consolas,monospace;color:var(--ui-fraco)}
+
+/* ---------- vazio / carregando / erro do palco ---------- */
+.cartaz{max-width:440px;text-align:center;color:var(--ui-fraco);line-height:1.6}
+.cartaz b{display:block;color:var(--ui-txt);font-size:15px;margin-bottom:6px}
+.cartaz .acao{margin-top:12px}
+
+/* ---------- sem JS ---------- */
+.semjs{padding:26px;max-width:620px;margin:0 auto;line-height:1.6}
+.semjs code{background:var(--ui-caixa);padding:1px 5px;border-radius:3px}
+
+/* MOVIMENTO SÓ ONDE ELE INFORMA, e só para quem não pediu para desligar.
+   Nada aqui anima posição de camada: durante o arrasto, transição é
+   mentira sobre onde a coisa está. */
+@media (prefers-reduced-motion:no-preference){
+  .marca{transition:outline-color .12s}
+}
+
+/* =====================================================================
+   ESTANTE — o acervo do tema, dentro do editor.
+   ===================================================================== */
+#abas{display:flex;gap:2px;margin-bottom:8px;position:sticky;top:-6px;
+  background:var(--ui-caixa);padding-top:2px;z-index:2}
+#abas button{flex:1;border-radius:5px 5px 0 0;border-bottom-color:transparent;
+  background:#202024;color:var(--ui-fraco);font-size:12px}
+#abas button[aria-selected="true"]{background:#33333A;color:var(--ui-txt);
+  border-color:var(--ui-borda);border-bottom-color:#33333A}
+
+#estante-topo{margin-bottom:8px}
+#busca-asset{width:100%;margin-bottom:6px}
+#rot-impedidos{display:flex;align-items:center;gap:5px;color:var(--ui-fraco);
+  font-size:11.5px;cursor:pointer}
+#rot-impedidos input{accent-color:var(--sel);cursor:pointer}
+.conta{margin:6px 0 0;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;color:var(--ui-fraco)}
+
+.fam{margin-bottom:10px}
+.fam>summary{cursor:pointer;padding:5px 4px;border-radius:4px;list-style:none;
+  display:flex;align-items:baseline;gap:6px}
+.fam>summary::-webkit-details-marker{display:none}
+.fam>summary:hover{background:#2E2E33}
+.fam .fnome{font-weight:600;font-size:12.5px}
+.fam .fqtd{font:11px ui-monospace,Menlo,Consolas,monospace;color:var(--ui-fraco);margin-left:auto}
+.fam .fdesc{color:var(--ui-fraco);font-size:11.5px;line-height:1.4;
+  margin:2px 4px 6px;padding-left:8px;border-left:2px solid var(--ui-borda)}
+
+.grade{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:0 2px}
+.ass{background:#202024;border:1px solid var(--ui-borda);border-radius:5px;
+  padding:5px;text-align:left;cursor:grab;display:block;width:100%}
+.ass:hover{border-color:var(--sel)}
+.ass[aria-current="true"]{border-color:var(--sel);background:var(--sel-fraca)}
+/* MINIATURA SOBRE CLARO, e não sobre o cinza da ferramenta: SVG de traço
+   preto sobre fundo escuro some, e um acervo em que metade dos cartões
+   parece vazio é um acervo que ninguém usa. O claro aqui é do CROMO — não
+   é a cor do papel de nenhum tema. */
+.ass .mini{width:100%;height:52px;object-fit:contain;display:block;
+  background:#EDEDEF;border-radius:3px;margin-bottom:4px}
+.ass .anome{display:block;font-size:11px;line-height:1.25;word-break:break-word}
+.ass .vered{display:block;font:10px/1.3 ui-monospace,Menlo,Consolas,monospace;margin-top:3px}
+.ass .vered.pode{color:var(--ui-ok)}
+.ass .vered.nao{color:var(--ui-erro)}
+.ass[data-monta="0"]{cursor:not-allowed;opacity:.72}
+.ass[data-monta="0"] .mini{filter:grayscale(1)}
+
+/* o fantasma que segue o cursor durante o arrasto */
+#fantasma{position:fixed;pointer-events:none;z-index:99;width:74px;height:74px;
+  object-fit:contain;background:rgba(12,12,12,.9);border:2px solid var(--sel);
+  border-radius:5px;padding:3px}
+
+/* ---------- as teclas, ditas onde se escolhe camada ----------
+   ATALHO QUE NINGUÉM SABE QUE EXISTE NÃO EXISTE. */
+#teclas{list-style:none;margin:12px 0 0;padding:9px 8px;border-top:1px solid var(--ui-borda);
+  color:var(--ui-fraco);font-size:11px;line-height:1.9}
+#teclas kbd{background:#2E2E33;border:1px solid var(--ui-borda);border-bottom-width:2px;
+  border-radius:3px;padding:1px 5px;font:10px ui-monospace,Menlo,Consolas,monospace;
+  color:var(--ui-txt)}
+#teclas .obs{margin-top:5px;font-style:italic;line-height:1.4}
+
+/* ---------- guias de alinhamento ----------
+   Amarelo, não magenta: magenta já é a MARCAÇÃO (o que está selecionado),
+   e usar a mesma cor faria a guia parecer parte da caixa em vez de uma
+   RELAÇÃO entre duas caixas. */
+.guia{position:absolute;background:var(--ui-alerta);pointer-events:none;z-index:8}
+.guia.v{top:-14px;bottom:-14px;width:1px}
+.guia.h{left:-14px;right:-14px;height:1px}
+.guia-rot{position:absolute;background:var(--ui-alerta);color:#12000E;
+  font:10px/1.3 ui-monospace,Menlo,Consolas,monospace;padding:2px 5px;border-radius:3px;
+  white-space:nowrap;pointer-events:none;z-index:10;font-weight:700}
+
+/* ---------- prévia da reserva ----------
+   Ela reproduz o que outro processo pinta DEPOIS. Não é camada:
+   `pointer-events:none` garante que o clique atravesse e continue pegando
+   a RESERVA, que é o que se manipula. */
+.previa{position:absolute;overflow:hidden;pointer-events:none}
+.previa img{display:block;position:absolute}
+.previa-cover img{left:0;top:0;width:100%;height:100%;
+  object-fit:cover;object-position:center}
+.previa-cover{outline-style:solid;outline-color:rgba(255,255,255,.9)}
+/* prévia que não achou o arquivo NÃO fica igual a reserva sem prévia */
+.previa-faltando{outline:2px dashed var(--ui-erro);outline-offset:-1px;
+  background:repeating-linear-gradient(45deg,rgba(255,107,91,.18) 0 8px,transparent 8px 16px)}
+.previa-faltando img{display:none}
+
+/* ---------- fichas de cor e medição (usadas pelo gancho `painel`) ---------- */
+.fichas{display:flex;gap:5px;flex-wrap:wrap;margin:2px 0 8px}
+.ficha{width:30px;height:26px;border-radius:4px;border:1px solid var(--ui-borda);
+  padding:0;cursor:pointer}
+.ficha:hover,.ficha[aria-current="true"]{outline:2px solid var(--sel);outline-offset:1px}
+input[type=color]{width:100%;height:30px;padding:2px;background:#141416;
+  border:1px solid var(--ui-borda);border-radius:4px;cursor:pointer}
+/* A MEDIÇÃO É NÚMERO, e número se lê em mono alinhado. */
+.medida{background:#141416;border:1px solid var(--ui-borda);border-radius:5px;
+  padding:7px 9px;margin-bottom:7px}
+.mlinha{font:11px/1.7 ui-monospace,Menlo,Consolas,monospace;color:var(--ui-txt);white-space:pre}

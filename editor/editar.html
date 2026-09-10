@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>editar — manipulação direta sobre a peça</title>
+<meta name="description" content="Editor de composição: marca uma camada da peça, arrasta, redimensiona, ajusta corpo, entrelinha e texto, e grava de volta na declaração sem reserializar o arquivo.">
+<!-- A BASE É A RAIZ SERVIDA, e não a pasta desta página. Sem isto, um
+     `src:'./img/foto.jpg'` declarado numa peça resolveria contra
+     `/editor/`, e a imagem que existe no disco apareceria como faltando —
+     um estado de erro fabricado pela ferramenta, sobre um arquivo certo. -->
+<base href="/">
+<link rel="stylesheet" href="/motor/peca.css">
+<link rel="stylesheet" href="/editor/editar.css">
+</head>
+<body>
+
+<!-- ===================================================================
+     SEM-JS. O editor é manipulação direta: sem script não existe editor,
+     e fingir que existe é pior. O que esta tela deve é dizer a verdade e
+     apontar o caminho que AINDA funciona — a declaração é um arquivo de
+     texto que se edita à mão, e é para lá que a pessoa vai.
+     Estado degradado NOMEADO, não tela branca.
+     =================================================================== -->
+<noscript>
+  <div class="semjs">
+    <h1>O editor precisa de JavaScript</h1>
+    <p>Esta tela existe para arrastar camadas com o mouse — sem script não há
+       arrasto, e uma versão “estática” dela seria uma tela morta fingindo de editor.</p>
+    <p><b>O que ainda funciona sem script:</b></p>
+    <ul>
+      <li>Editar os números à mão: eles são texto nos arquivos de
+          <code>pecas/</code>, dentro do <code>L:[…]</code> de cada peça, na forma
+          <code>box:[x, y, largura, altura]</code> em % do nativo declarado em
+          <code>w</code>/<code>h</code>.</li>
+      <li><code>altura: null</code> quer dizer altura automática, do conteúdo.</li>
+    </ul>
+  </div>
+</noscript>
+
+<div id="app" hidden>
+  <div id="barra">
+    <label for="sel-peca" class="visually-hidden">Peça a editar</label>
+    <select id="sel-peca" aria-label="Peça a editar"></select>
+    <span class="sep" role="presentation"></span>
+    <button id="btn-desfazer" title="Desfazer (Ctrl+Z)" disabled>↶ Desfazer</button>
+    <button id="btn-refazer" title="Refazer (Ctrl+Shift+Z)" disabled>↷ Refazer</button>
+    <button id="btn-descartar" disabled>Descartar tudo</button>
+    <span class="sep" role="presentation"></span>
+    <button id="btn-patch" disabled title="Mostra o diff sem gravar nada">Ver patch</button>
+    <button id="btn-gravar" class="primaria" disabled>Gravar agora</button>
+    <label id="rot-auto" title="Grava no fim de cada gesto, sem perguntar">
+      <input type="checkbox" id="chk-auto" checked> salvar sozinho
+    </label>
+    <span class="sep" role="presentation"></span>
+    <!-- O SELO É O ÚNICO CANAL DE ESTADO DA ESCRITA, e por isso ele é um
+         elemento próprio, sempre visível, com `aria-live` — não um texto
+         que divide espaço com outra coisa. -->
+    <span id="selo" role="status" aria-live="polite">salvo</span>
+    <span class="contagem" id="cont-edicoes">sem alteração</span>
+  </div>
+
+  <div id="lista" role="region" aria-label="Camadas e estante">
+    <div id="abas" role="tablist">
+      <button id="aba-camadas" role="tab" aria-selected="true" aria-controls="pn-camadas">Camadas</button>
+      <button id="aba-estante" role="tab" aria-selected="false" aria-controls="pn-estante">Estante</button>
+    </div>
+
+    <div id="pn-camadas" role="tabpanel" aria-labelledby="aba-camadas">
+      <div id="camadas" role="listbox" aria-label="Camadas da peça" tabindex="0"></div>
+      <!-- ATALHO QUE NINGUÉM SABE QUE EXISTE NÃO EXISTE. As teclas ficam
+           ditas onde se olha para escolher camada, não num "ajuda" à parte. -->
+      <ul id="teclas" aria-label="Teclas">
+        <li><kbd>T</kbd> nova caixa de texto</li>
+        <li><kbd>Delete</kbd> apaga a camada marcada</li>
+        <li><kbd>Tab</kbd> anda na pilha · <kbd>Esc</kbd> desmarca</li>
+        <li><kbd>&larr;&uarr;&darr;&rarr;</kbd> move 0,1% · com <kbd>Shift</kbd> 1%</li>
+        <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz (e grava a volta)</li>
+        <li>arrastando: gruda no alinhamento das outras camadas ·
+            <kbd>Alt</kbd> solta a grude (para sangrar de propósito)</li>
+        <li class="obs">as letras não valem enquanto você digita num campo</li>
+      </ul>
+    </div>
+
+    <div id="pn-estante" role="tabpanel" aria-labelledby="aba-estante" hidden>
+      <!-- A CONDIÇÃO NÃO É FILTRO A DESCOBRIR. A tela abre mostrando o que
+           se pode usar, e diz EM NÚMERO quanto ficou de fora e por quê.
+           Esconder sem contar é resposta errada entregue em silêncio. -->
+      <div id="estante-topo">
+        <input type="search" id="busca-asset" placeholder="buscar por nome…"
+               aria-label="Buscar asset por nome">
+        <label id="rot-impedidos">
+          <input type="checkbox" id="chk-impedidos"> mostrar o que NÃO se pode usar
+        </label>
+        <p id="conta-acervo" class="conta"></p>
+      </div>
+      <div id="familias"></div>
+    </div>
+  </div>
+
+  <div id="meio">
+    <div id="envelope">
+      <div id="palco"></div>
+      <div id="marcas"></div>
+    </div>
+    <div id="cartaz" class="cartaz" hidden></div>
+    <!-- BLOQUEIO. A recusa de escrita não é linha de rodapé: é um estado da
+         tela que cobre o palco, apaga a peça e não sai sozinho. O olho de
+         quem edita está na peça — é lá que a recusa tem de aparecer, e ela
+         tem de trazer a saída como coisa clicável, não como prosa. -->
+    <div id="bloqueio" hidden role="alertdialog" aria-labelledby="bloqueio-tit"
+         aria-describedby="bloqueio-txt">
+      <div class="caixa">
+        <p class="etiqueta">não gravei</p>
+        <h2 id="bloqueio-tit"></h2>
+        <p id="bloqueio-txt"></p>
+        <div id="bloqueio-acoes"></div>
+        <pre id="bloqueio-cola" hidden></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="painel" role="region" aria-label="Propriedades da camada marcada">
+    <div id="painel-corpo"></div>
+  </div>
+
+  <div id="rodape">
+    <span id="estado" role="status" aria-live="polite"></span>
+    <span class="contagem" id="arquivo-info"></span>
+  </div>
+</div>
+
+<script src="/motor/montar.js"></script>
+<!-- ===================================================================
+     O CARREGADOR DE TEMA. Ele existe porque o nome do tema mora no
+     servidor, não nesta página: pendurar `<script src="temas/fulano/…">`
+     aqui obrigaria a editar o HTML a cada troca de tema, que é
+     exatamente o acoplamento que a linha de corte tirou.
+
+     TEMA AUSENTE OU QUEBRADO NÃO IMPEDE O EDITOR DE ABRIR. Se o `<script>`
+     do tema falhar (404, erro de sintaxe), `window.TEMA` fica indefinido e
+     o editor sobe com os quatro tipos do núcleo — e diz isso na linha de
+     estado, em vez de mostrar página branca.
+     =================================================================== -->
+<script>
+(function () {
+  'use strict';
+  function subir() {
+    var s = document.createElement('script');
+    s.src = '/editor/editar.js';
+    document.body.appendChild(s);
+  }
+  fetch('/_api/inventario').then(function (r) { return r.json(); }).then(function (j) {
+    if (!j || !j.tema || !j.tema.nome) return subir();
+    if (j.tema.css) {
+      var l = document.createElement('link');
+      l.rel = 'stylesheet'; l.href = j.tema.css;
+      document.head.appendChild(l);
+    }
+    var t = document.createElement('script');
+    t.src = '/temas/' + j.tema.nome + '/tema.js';
+    /* SUBIR NOS DOIS CAMINHOS. Sem o `onerror`, um tema que não carrega
+       deixaria a página parada para sempre — silêncio lido como
+       "carregando", que é o pior dos dois mundos. */
+    t.onload = subir;
+    t.onerror = subir;
+    document.head.appendChild(t);
+  }).catch(subir);
+})();
+</script>
+</body></html>

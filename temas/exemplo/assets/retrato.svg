@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 750" width="600" height="750" role="img" aria-label="retrato de exemplo">
+  <rect width="600" height="750" fill="#DCD7CC"/>
+  <circle cx="300" cy="280" r="118" fill="#B9B1A2"/>
+  <path d="M78 750c0-134 99-236 222-236s222 102 222 236Z" fill="#B9B1A2"/>
+  <text x="300" y="712" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace"
+        font-size="24" fill="#6B6B70">retrato · placeholder</text>
+</svg>

@@ -1,0 +1,107 @@
+/* =====================================================================
+   peca.css — a folha do NÚCLEO. O mínimo para os quatro tipos existirem.
+
+   ISTO NÃO É UM SISTEMA VISUAL. É o esqueleto: posicionamento absoluto em
+   % do nativo, `overflow` do quadro, e o comportamento das quatro camadas
+   que o núcleo conhece. Cor, família, peso, escala tipográfica e forma são
+   do TEMA — ele carrega a folha dele DEPOIS desta e escreve por cima.
+
+   As variáveis abaixo existem para o tema ter onde pegar. Os valores são
+   neutros de propósito: preto sobre branco, família de sistema. Nenhuma
+   fonte é embarcada aqui.
+   ===================================================================== */
+:root {
+  --peca-fundo: #FFFFFF;
+  --peca-tinta: #111111;
+  --peca-fraco: #6B6B70;
+  --peca-marca: #2B5BD7;
+  --peca-familia: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --peca-familia-tt: var(--peca-familia);
+}
+
+/* O QUADRO. `overflow:hidden` é lei da peça: o que sangra para fora não
+   aparece no export. O editor não desliga isto — ele desenha a marcação
+   num envelope IRMÃO, fora do recorte, para a camada arrastada para fora
+   continuar visível e recuperável. */
+.pc {
+  position: relative;
+  overflow: hidden;
+  background: var(--peca-fundo);
+  color: var(--peca-tinta);
+  font-family: var(--peca-familia);
+  isolation: isolate;
+}
+
+/* toda camada é uma caixa em % do nativo */
+.pc .ly {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+/* ---------- texto ---------- */
+/* CAMADA DE TEXTO NÃO DECLARA ALTURA — ela nasce do conteúdo. Por isso
+   nada aqui fixa `height`, e o editor não dá alça de altura a ela. */
+.pc .tt {
+  font-family: var(--peca-familia-tt);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+.pc .tx {
+  font-weight: 400;
+  line-height: 1.42;
+  margin: 0;
+}
+.pc .mk {                       /* o marcador `[[assim]]` */
+  background: var(--peca-marca);
+  color: var(--peca-fundo);
+  padding: 0 .12em;
+  border-radius: .06em;
+}
+
+/* ---------- imagem ---------- */
+.pc .obj { overflow: hidden; }
+.pc .obj .fig {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  object-position: center;
+  display: block;
+}
+/* ARQUIVO AUSENTE SE DECLARA. Sem isto uma imagem quebrada fica igual a
+   uma reserva vazia, e a tela mente sobre qual dos dois é. */
+.pc .obj.faltando {
+  outline: 2px dashed #D3402F;
+  outline-offset: -2px;
+  background: repeating-linear-gradient(45deg,
+    rgba(211,64,47,.10) 0 8px, transparent 8px 16px);
+}
+/* o ícone de imagem quebrada do navegador NÃO entra: ele é o desenho de
+   OUTRA ferramenta contando a mesma história pior. Quem conta aqui é a
+   hachura vermelha, e o painel diz qual arquivo faltou. */
+.pc .obj.faltando .fig { display: none; }
+
+/* ---------- reserva ---------- */
+/* O VÃO NÃO IMPRIME NADA. Ele é transparente de propósito: quem o vê é o
+   editor, pela marcação, não a peça exportada. */
+.pc .reserva { background: transparent; }
+
+/* ---------- tipo que ninguém sabe pintar ---------- */
+/* VISÍVEL, NOMEADO, E MEXÍVEL. A alternativa — sumir — faria alguém apagar
+   uma camada que não sabia que existia. */
+/* tipo cujo pintor do tema ESTOUROU: mesma caixa, cor de erro, porque
+   "o tema não declarou" e "o tema quebrou" são dois fatos diferentes. */
+.pc .desconhecido.quebrou { outline-color: #D3402F; color: #D3402F; }
+.pc .desconhecido {
+  outline: 2px dashed var(--peca-fraco);
+  outline-offset: -2px;
+  background: rgba(107,107,112,.08);
+  color: var(--peca-fraco);
+  font: 500 12px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4px;
+  overflow: hidden;
+}

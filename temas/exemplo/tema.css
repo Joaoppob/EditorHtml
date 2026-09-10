@@ -1,0 +1,40 @@
+/* =====================================================================
+   temas/exemplo/tema.css — a folha do TEMA, carregada DEPOIS de
+   motor/peca.css e escrevendo por cima dela.
+
+   Aqui mora tudo o que é decisão visual: cor, família, peso, escala. O
+   núcleo não conhece nada disto — troque este arquivo e a peça muda de
+   cara sem uma linha de editor mudar.
+
+   Nenhuma fonte é embarcada. As famílias são de sistema, por escolha:
+   um tema de demonstração que baixa 4 arquivos de fonte ensina a errado.
+   ===================================================================== */
+:root{
+  --peca-fundo:#F6F4EF;          /* linho */
+  --peca-tinta:#1B1B1F;          /* breu  */
+  --peca-fraco:#6B6B70;
+  --peca-marca:#E4572E;          /* barro */
+  --peca-familia:ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --peca-familia-tt:var(--peca-familia);
+  --tema-anil:#2B5BD7;
+  --tema-mel:#F2C14E;
+}
+
+.pc .tt{font-weight:800;letter-spacing:-.032em;line-height:1.0}
+.pc .tx{font-weight:400;line-height:1.45;color:var(--peca-tinta)}
+
+/* o FIO — camada, não borda. Sem `cor` declarada ele segue a bandeira. */
+.pc .fio{background:var(--peca-tinta)}
+
+/* o SELO — pastilha em caixa alta. A CAIXA sobe por CSS, a declaração
+   guarda o texto como foi escrito: trocar de tipo não reescreve o texto. */
+.pc .selo{
+  background:var(--tema-anil);color:var(--peca-fundo);
+  font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+  line-height:1;display:inline-flex;align-items:center;
+  padding:.42em .68em;border-radius:.22em;width:auto
+}
+
+/* peça de regime escuro: `cls:'breu'` na declaração */
+.pc.breu{--peca-fundo:#1B1B1F;--peca-tinta:#F6F4EF;--peca-fraco:#9A9AA2}
+.pc.breu .fio{background:var(--peca-tinta)}

@@ -1,0 +1,35 @@
+{
+  "name": "editorhtml",
+  "version": "0.1.0",
+  "description": "Editor de mouse para peças gráficas declaradas em HTML/JS — arraste, redimensione, escreva; o resultado é sempre uma declaração legível.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "editorhtml": "./bin/editorhtml.js"
+  },
+  "main": "bin/editorhtml.js",
+  "files": [
+    "bin/",
+    "editor/",
+    "motor/",
+    "temas/",
+    "converter/",
+    "CLAUDE.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "servir": "node bin/editorhtml.js servir",
+    "fidelidade": "node converter/fidelidade.js"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "editor",
+    "html",
+    "design",
+    "peças",
+    "declarative-ui"
+  ]
+}
