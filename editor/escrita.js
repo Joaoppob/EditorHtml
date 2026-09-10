@@ -96,17 +96,81 @@ function varredor(src, ini, profInicial) {
 }
 
 /* ------------------------------------------------------------------ */
+/* ACHAR AS DECLARAÇÕES DE `slug`, DO JEITO QUE ELAS SE ESCREVEM DE FATO.
+
+   A primeira versão disto procurava o literal `slug:'x'` com `indexOf`, e
+   o defeito só apareceu no primeiro uso de fora: um agente sem contexto
+   converteu um HTML e escreveu `slug: 'pagina'` — com o espaço que
+   qualquer pessoa e qualquer formatador põem. O localizador não achou,
+   devolveu `slug-ausente`, e o editor abriu a peça bonita e disse "nada
+   será gravado". O editor abre e não salva é a promessa inteira caindo.
+   Medido: 1 de 1 agente frio produziu o formato que não abria. E o nosso
+   próprio corpus escondia isso, porque a casa escrevia colado.
+
+   AGORA A TOLERÂNCIA É A MESMA QUE O LOCALIZADOR JÁ TINHA para achar
+   `L:[`: espaço em volta dos dois-pontos, e as duas aspas. Nada além
+   disso — tolerar formatação não é adivinhar intenção.
+
+   E ELA VEM COM UM GANHO DE PRECISÃO, não só de alcance: a varredura é a
+   do `varredor`, que sabe o que é comentário e o que é string. `indexOf`
+   era cego — um `slug:'capa'` citado dentro de um bloco de comentário
+   contava como ocorrência e derrubava o arquivo inteiro em
+   `slug-repetido`. Agora só conta declaração de verdade.
+
+   O QUE **NÃO** MUDOU, e é o que mantém isto seguro: zero ocorrências
+   recusa, duas ou mais recusam. A cura alarga o que ele RECONHECE, nunca
+   o que ele ACEITA como ambíguo.                                        */
+
+/* `slug` + espaço + `:` + espaço + aspa (simples ou dupla) + valor.
+   Sticky (`y`): casa ancorado na posição que a varredura ofereceu, nunca
+   procurando adiante — procurar adiante é como um casamento de outra
+   linha entraria fingindo ser deste ponto. O valor não atravessa quebra
+   de linha, senão uma aspa não fechada engoliria o arquivo. */
+var RE_SLUG = /slug[ \t\r\n]*:[ \t\r\n]*(['"])((?:\\.|[^\\\r\n])*?)\1/y;
+
+function acharSlugs(src) {
+  var v = varredor(src, 0, 0), passo, achados = [];
+  while ((passo = v.passo())) {
+    /* o varredor PULA string e comentário inteiros, então tudo o que ele
+       devolve é código de verdade — é daí que vem a precisão nova */
+    if (passo.c !== 's') continue;
+    var i = passo.i;
+    /* `subslug:` não é `slug:`. Sem esta guarda, uma chave que TERMINA em
+       "slug" viraria uma peça fantasma. */
+    if (/[A-Za-z0-9_$]/.test(src[i - 1] || '')) continue;
+    RE_SLUG.lastIndex = i;
+    var m = RE_SLUG.exec(src);
+    if (!m) continue;
+    achados.push({ i: i, valor: m[2] });
+  }
+  return achados;
+}
+
+/* ------------------------------------------------------------------ */
 /* LOCALIZAR. Devolve o recorte de texto de cada camada do `L:[…]` de um
    slug. Nunca adivinha: se o slug aparecer 0 ou 2+ vezes, se não houver
    `L:[` no objeto, ou se alguma camada tiver comentário interno, RECUSA
    com motivo nomeado.                                                  */
 function localizarCamadas(src, slug) {
-  var alvo = 'slug:' + AP + slug + AP;
-  var n = 0, p = -1, k = src.indexOf(alvo);
-  while (k >= 0) { n++; if (n === 1) p = k; k = src.indexOf(alvo, k + 1); }
-  if (n === 0) return { ok: false, erro: 'slug-ausente', msg: 'nenhuma peça declara ' + alvo };
-  if (n > 1) return { ok: false, erro: 'slug-repetido',
-    msg: n + ' peças declaram ' + alvo + ' — ambíguo, não escrevo' };
+  var todos = acharSlugs(src);
+  var achados = todos.filter(function (a) { return a.valor === slug; });
+  if (achados.length === 0) {
+    /* A MENSAGEM DIZ O QUE EXISTE, e não só o que falta. "nenhuma peça
+       declara `slug:'x'`" manda a pessoa procurar um erro de digitação no
+       nome; listar os slugs que ESTÃO no arquivo resolve o caso comum
+       (nome trocado) sem ela abrir o arquivo. */
+    return { ok: false, erro: 'slug-ausente',
+      msg: 'nenhuma peça deste arquivo declara `slug` igual a "' + slug + '"' +
+           (todos.length ? '. Os que existem: ' +
+              todos.map(function (a) { return '"' + a.valor + '"'; }).join(', ')
+            : '. O arquivo não declara `slug` nenhum.') };
+  }
+  if (achados.length > 1) {
+    return { ok: false, erro: 'slug-repetido',
+      msg: achados.length + ' peças declaram `slug` igual a "' + slug +
+           '" — ambíguo, não escrevo' };
+  }
+  var p = achados[0].i;
 
   /* `L:[` na profundidade 0 relativa ao slug. Qualquer array declarado
      antes dele (por exemplo `mov:[{…}]`) fica em profundidade ≥1, e por
@@ -491,5 +555,5 @@ function aplicar(src, edicoes, contagens, tema) {
            detalhe: detalhe };
 }
 
-module.exports = { localizarCamadas, aplicar, comoString, num, numLivre, varredor,
-                   CAMPOS, ORDEM, escopoDe, comoLinha };
+module.exports = { localizarCamadas, acharSlugs, aplicar, comoString, num, numLivre,
+                   varredor, CAMPOS, ORDEM, escopoDe, comoLinha };

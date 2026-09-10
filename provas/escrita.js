@@ -102,7 +102,12 @@ ok(multi >= 1, 'C1b2 · e pelo menos uma camada do corpus é MULTI-LINHA — ' +
 let recusaFalsa = [];
 for (const r of recusados) {
   const g = FONTE[r.slug];
-  const bloco = SRC[g].slice(SRC[g].indexOf("slug:'" + r.slug + "'"));
+  /* acha o bloco pelo MESMO localizador que o produto usa, e não por um
+     literal com aspa colada — um literal aqui presumiria a formatação do
+     fixture, que é exatamente a presunção que este arquivo passou a
+     testar contra. */
+  const ondeSlug = E.acharSlugs(SRC[g]).filter(a => a.valor === r.slug)[0];
+  const bloco = SRC[g].slice(ondeSlug ? ondeSlug.i : 0);
   const trecho = bloco.slice(0, 4000);
   if (r.erro === 'declaracao-computada' && trecho.indexOf('.concat(') < 0)
     recusaFalsa.push(r.slug + ': recusei por `computada` mas não há `.concat(` na fonte');
@@ -416,6 +421,119 @@ function mutar(de, para) {
   catch (e) { caiu = true; }
   ok(caiu, 'C7d · sem a cerca de escopo o pedido de `z` não é mais recusado por nome — ' +
     'é ela que transforma "campo que eu não sei gravar" em erro em vez de silêncio');
+})();
+
+/* =====================================================================
+   C8 · O FORMATO DE FORA — a cura que o primeiro uso real cobrou
+
+   ESTA SEÇÃO EXISTE PORQUE UM AGENTE FRIO ACHOU O DEFEITO ANTES DA SUÍTE.
+   Sessão nova, sem contexto, recebeu o link do repositório e escreveu
+   `slug: 'pagina'` — com o espaço que qualquer formatador põe. O
+   localizador procurava o literal `slug:'pagina'` e devolvia
+   `slug-ausente`; a peça montava linda e o rodapé dizia "nada será
+   gravado". 1 de 1.
+
+   E O CORPUS DA CASA ESCONDIA ISSO: `pecas/cartao.js` escreve
+   `slug:'cartao-capa'` colado mas `n: 'Capa'` espaçado — quer dizer, o
+   fixture tinha as duas convenções e usava a apertada exatamente na
+   chave que importava. Um fixture que só reproduz o hábito de quem
+   escreveu não é fixture, é espelho.
+
+   POR ISSO OS CASOS AQUI SÃO CONSTRUÍDOS À MÃO, um por formatação, e
+   vêm com os NEGATIVOS colados: tolerar espaço não pode virar aceitar
+   qualquer coisa.
+   ===================================================================== */
+console.log('\nC8 · o formato que vem de fora, e o que continua sendo recusado');
+
+/* uma peça mínima, parametrizada pela forma de escrever o `slug` */
+function pecaCom(decl) {
+  return 'module.exports = { pecas: [\n' +
+         '  { ' + decl + ', n: "Uma", w: 1080, h: 1350, L: [\n' +
+         '    { t: "tt", s: 72, tx: "Olá", box:[6,10,88,null], z: 2 },\n' +
+         '    { t: "tx", s: 36, tx: "Apoio", box:[6,40,82,null], z: 3 }\n' +
+         '  ] }\n' +
+         ']};\n';
+}
+const FORMAS = [
+  ["slug:'pagina'",      'colado, aspa simples (como a casa escrevia)'],
+  ["slug: 'pagina'",     'ESPAÇO depois dos dois-pontos — o caso do agente frio'],
+  ['slug: "pagina"',     'espaço + ASPA DUPLA'],
+  ["slug :'pagina'",     'espaço ANTES dos dois-pontos'],
+  ["slug  :   'pagina'", 'espaço dos dois lados, generoso'],
+  ['slug:"pagina"',      'colado, aspa dupla'],
+  ["slug:\n    'pagina'", 'QUEBRA DE LINHA entre os dois-pontos e o valor']
+];
+let achouTodas = 0;
+for (const [decl, nome] of FORMAS) {
+  const loc = E.localizarCamadas(pecaCom(decl), 'pagina');
+  const bom = loc.ok && loc.camadas.length === 2;
+  if (bom) achouTodas++;
+  ok(bom, 'C8a · ' + nome, loc.ok ? ('achei ' + loc.camadas.length + ' camadas') : loc.msg);
+}
+ok(achouTodas === FORMAS.length,
+  'C8a-total · as ' + FORMAS.length + ' formatações do mesmo `slug` são a MESMA peça');
+
+/* ---- e agora o que TEM de continuar sendo recusado ---- */
+const semSlug = E.localizarCamadas(pecaCom("slug: 'outra'"), 'pagina');
+ok(semSlug.ok === false && semSlug.erro === 'slug-ausente',
+  'C8b · slug que não existe continua sendo `slug-ausente` — a tolerância não inventa peça');
+ok(/"outra"/.test(semSlug.msg),
+  'C8b2 · e a mensagem LISTA os slugs que existem, em vez de só dizer que faltou',
+  semSlug.msg);
+
+const doisIguais = 'module.exports = { pecas: [\n' +
+  '  { slug: "pagina", w: 10, h: 10, L: [{ t: "tx", box:[0,0,1,1] }] },\n' +
+  "  { slug:'pagina',  w: 10, h: 10, L: [{ t: 'tx', box:[0,0,1,1] }] }\n" +
+  ']};\n';
+const rep = E.localizarCamadas(doisIguais, 'pagina');
+ok(rep.ok === false && rep.erro === 'slug-repetido',
+  'C8c · duas peças com o mesmo slug continuam ambíguas — e agora nem escrevendo ' +
+  'CADA UMA de um jeito dá pra escapar da cerca', JSON.stringify(rep).slice(0, 160));
+
+/* `subslug:` não é `slug:` — senão uma chave que TERMINA em "slug" viraria
+   peça fantasma, e a contagem de ocorrências mentiria nos dois sentidos */
+const sub = E.localizarCamadas(pecaCom("subslug: 'pagina', slug: 'certa'"), 'pagina');
+ok(sub.ok === false && sub.erro === 'slug-ausente',
+  'C8d · `subslug:` não conta como `slug:`', JSON.stringify(sub).slice(0, 140));
+ok(E.localizarCamadas(pecaCom("subslug: 'pagina', slug: 'certa'"), 'certa').ok === true,
+  'C8d2 · discriminação: e o `slug` de verdade da mesma linha é achado normalmente');
+
+/* ---- A PRECISÃO QUE VEIO JUNTO: comentário e string não contam ----
+   `indexOf` era cego. Um `slug:'capa'` citado num bloco de doutrina —
+   coisa que estes arquivos fazem o tempo todo — contava como ocorrência e
+   derrubava o arquivo inteiro em `slug-repetido`. */
+const comCitacao =
+  '/* esta peça é a irmã de slug:"pagina", declarada abaixo */\n' +
+  'module.exports = { pecas: [\n' +
+  '  { slug: "pagina", w: 10, h: 10, L: [{ t: "tx", tx: "veja slug:\'pagina\'", box:[0,0,1,1] }] }\n' +
+  ']};\n';
+const cit = E.localizarCamadas(comCitacao, 'pagina');
+ok(cit.ok === true && cit.camadas.length === 1,
+  'C8e · `slug:` citado dentro de comentário E dentro de string NÃO conta como declaração',
+  cit.ok ? '' : cit.msg);
+ok(E.acharSlugs(comCitacao).length === 1,
+  'C8e2 · a varredura enxerga exatamente 1 declaração no arquivo (achou ' +
+  E.acharSlugs(comCitacao).length + ')');
+
+/* ---- MUTAÇÃO: é a tolerância que faz isto passar, ou o acaso? ---- */
+(function () {
+  const m = mutar('var RE_SLUG = /slug[ \\t\\r\\n]*:[ \\t\\r\\n]*([\'"])((?:\\\\.|[^\\\\\\r\\n])*?)\\1/y;',
+                  /* O MUTANTE TEM DE TER A MESMA FORMA, só sem a tolerância:
+                     grupo 1 = a aspa, grupo 2 = o valor. A primeira versão
+                     deste mutante trocava a ordem dos grupos e por isso
+                     falhava em TODO caso — o que fazia C8f "passar" sem ter
+                     testado a tolerância. Quem pegou foi o C8f2. */
+                  'var RE_SLUG = /slug:(\')([^\']*)\\1/y;');
+  if (!m) { ok(false, 'C8f · não montei o mutante (o alvo mudou de forma?)'); return; }
+  /* o mutante volta ao comportamento VELHO: só aspa simples colada. */
+  const antes = m.localizarCamadas(pecaCom("slug: 'pagina'"), 'pagina');
+  ok(antes.ok === false && antes.erro === 'slug-ausente',
+    'C8f · com o padrão VELHO no lugar, `slug: \'pagina\'` volta a ser `slug-ausente` — ' +
+    'logo é a tolerância nova que cura, e não outra coisa que mudou junto');
+  const depois = m.localizarCamadas(pecaCom("slug:'pagina'"), 'pagina');
+  ok(depois.ok === true,
+    'C8f2 · e o mesmo mutante ainda acha o formato colado — a reprova de C8f é da ' +
+    'formatação, não do mutante estar quebrado');
 })();
 
 /* ------------------------------------------------------------------ */

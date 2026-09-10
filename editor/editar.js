@@ -139,6 +139,33 @@
     UI.estado.textContent = msg;
   }
 
+  /* ONDE ESTE EDITOR ESTÁ RODANDO, DITO PELA PÁGINA E NÃO PELO PALPITE.
+     As mensagens de estado degradado mandavam a pessoa subir
+     `node editor/servir.js 8811` com a porta escrita à mão. A CLI desloca
+     a porta sozinha quando 8811 está ocupada — então, exatamente no caso
+     em que a porta padrão não estava livre, a saída oferecida apontava
+     para o lugar errado. Instrução que manda pra porta errada é pior que
+     instrução nenhuma: ela gasta a confiança de quem seguiu.
+
+     Três situações, três respostas, e nenhuma delas inventa número:
+       · servida por http com porta   → o endereço REAL, lido de `location`
+       · servida na 80/443            → o `origin`, sem porta pendurada
+       · aberta como `file://`        → não há servidor atrás disto, e é
+                                        isso que a mensagem tem de dizer   */
+  function ondeEstou() {
+    if (location.protocol === 'file:') return null;
+    return location.origin;
+  }
+  function comoSubir() {
+    var onde = ondeEstou();
+    if (onde == null) {
+      return 'esta página foi aberta direto do disco (`file://`), então não há servidor ' +
+             'nenhum atrás dela. Rode `npx editorhtml abrir` e use o endereço que ele imprimir';
+    }
+    return 'o servidor desta página é ' + onde + ' — se ele caiu, suba de novo com ' +
+           '`npx editorhtml servir` (ele escolhe a porta e imprime o endereço) e volte para cá';
+  }
+
   function cartaz(titulo, texto, acao) {
     UI.cartaz.hidden = false;
     UI.envelope.hidden = true;
@@ -1032,8 +1059,7 @@
     bloquear('Perdi o servidor do editor',
       'O gesto não chegou no disco: ' + (err && err.message ? err.message : 'sem resposta') +
       '. A página continua funcionando para arrastar e medir, mas NADA está sendo salvo. ' +
-      'Suba `npx editorhtml servir` (ou `node editor/servir.js 8811`) e tente de novo — ' +
-      'ou copie a lista abaixo e aplique à mão.',
+      comoSubir() + '. Ou copie a lista abaixo e aplique à mão.',
       [{ rotulo: 'Tentar salvar de novo', primaria: true,
          fn: function () { desbloquear(); salvar(true); } },
        { rotulo: 'Continuar sem salvar',
@@ -1767,8 +1793,8 @@
        (1) o que você está vendo veio da MEMÓRIA, não do arquivo;
        (2) por isso nada vai ser gravado;  (3) como sair disso. */
     estado('MEMÓRIA: o que está na tela veio da memória da página, não do arquivo — ' +
-      motivo + '. Nada será gravado. Recarregue a página (ou suba ' +
-      '`node editor/servir.js 8811`) para ler o disco.', 'alerta');
+      motivo + '. Nada será gravado. Recarregue a página para ler o disco; ' +
+      comoSubir() + '.', 'alerta');
   }
 
   /* ==================================================================
@@ -2056,8 +2082,7 @@
          descobre no primeiro arrasto que não gravou. */
       cartaz('esta página não está sendo servida pelo editor',
         'Não consegui ler `/_api/inventario`: ' + (err && err.message) + '. ' +
-        'Abra pelo servidor — `npx editorhtml abrir`, ou `node editor/servir.js 8811` e ' +
-        'depois http://localhost:8811/editor/editar.html');
+        comoSubir() + '.');
       estado('sem servidor: nada carrega e nada grava', 'erro');
     });
   }
