@@ -42,6 +42,7 @@ Campos por peça:
 | `slug` | identificador único da peça no arquivo |
 | `n` | nome legível (aparece na lista do editor) |
 | `w`, `h` | tamanho nativo em pixels (o "papel" da peça) |
+| `cls` | classe CSS extra aplicada à raiz da peça (uso do tema); sem classe extra por padrão |
 | `L` | lista de camadas, na ordem de leitura (não de pintura — pintura é `z`) |
 
 Campos por camada:
@@ -51,8 +52,13 @@ Campos por camada:
 | `t` | tipo da camada — ver os 4 tipos abaixo |
 | `tx` | texto (para `tt`/`tx`) |
 | `s` | tamanho de fonte em px (para `tt`/`tx`) |
+| `al` | alinhamento de texto — `left`/`center`/`right`/`justify` (CSS `text-align`; padrão `left`) — para `tt`/`tx` |
+| `lh` | entrelinha (CSS `line-height`); sem valor por padrão — para `tt`/`tx` |
 | `src` | caminho da imagem (para `obj`) |
+| `op` | opacidade da imagem (CSS `opacity`, 0–1); sem valor por padrão (opaca) — para `obj` |
+| `alt` | texto alternativo da imagem (`alt` do `<img>`); vazio por padrão — para `obj` |
 | `box` | `[x, y, largura, altura]` — tudo em **% do tamanho nativo** (`w`/`h` da peça). `altura: null` = altura automática, cresce com o conteúdo |
+| `k` | chave da reserva — grava `data-k` no elemento, pra outro processo identificar o vão; sem atributo quando ausente — para `reserva` |
 | `z` | ordem de pintura — maior pinta por cima |
 
 **O editor conhece 4 tipos de camada — o núcleo, e só o núcleo:**
