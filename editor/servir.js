@@ -541,10 +541,29 @@ const servidor = http.createServer(async (req, res) => {
       if (JOB && JOB.rodando) {
         return json(res, 409, { ok: false, erro: 'build-em-andamento', msg: 'já tem um build rodando — espere ele terminar' });
       }
-      const slugs = Array.isArray(d.slugs) ? d.slugs.filter(s => typeof s === 'string' && s) : [];
-      if (!slugs.length) return json(res, 400, { ok: false, erro: 'sem-slugs', msg: 'mande {slugs:[...]} com ao menos 1 slug' });
-      iniciarBuild(slugs);
-      return json(res, 202, { ok: true, iniciado: true, slugs });
+      const slugsPedidos = Array.isArray(d.slugs) ? d.slugs : [];
+      if (!slugsPedidos.length) return json(res, 400, { ok: false, erro: 'sem-slugs', msg: 'mande {slugs:[...]} com ao menos 1 slug' });
+
+      /* O SLUG VIRA ARGUMENTO DE PROCESSO (`iniciarBuild` → `spawn`, e o
+         `args` de muitos projetos é `[..., ...slugs]`). Sem cerca, um slug
+         como `--force` ou `-x` vira FLAG do comando de build em vez de
+         nome de peça — achado [BAIXA] da revisão F2. A cerca é dupla:
+         FORMATO (nunca pode começar com `-`, então nunca vira flag) e
+         PERTENCIMENTO (tem de estar no inventário do projeto ABERTO agora
+         — não abre a porta para um slug que só existe na cabeça de quem
+         chamou a API). Um só slug ruim recusa o pedido inteiro: gerar 3
+         de 4 e chamar de sucesso parcial seria decidir por quem pediu. */
+      const SLUG_VALIDO = /^[a-z0-9][a-z0-9-]*$/;
+      const conhecidos = new Set(inventario().usos.map(u => u.slug));
+      const invalidos = slugsPedidos.filter(s =>
+        typeof s !== 'string' || !SLUG_VALIDO.test(s) || !conhecidos.has(s));
+      if (invalidos.length) {
+        return json(res, 400, { ok: false, erro: 'slug-invalido',
+          msg: 'recusado — não bate com `^[a-z0-9][a-z0-9-]*$` ou não está no mapa de peças ' +
+               'deste projeto: ' + JSON.stringify(invalidos) });
+      }
+      iniciarBuild(slugsPedidos);
+      return json(res, 202, { ok: true, iniciado: true, slugs: slugsPedidos });
     }
     return json(res, 405, { ok: false, erro: 'metodo' });
   }
