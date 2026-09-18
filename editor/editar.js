@@ -357,9 +357,37 @@
     UI.envelope.style.height = (H * k) + 'px';
     UI.zoom.style.width = W + 'px';
     UI.zoom.style.height = H + 'px';
-    UI.zoom.style.transform = 'scale(' + k + ')';
+    /* k===1 NÃO VIRA `scale(1)`. Matematicamente é a identidade, mas
+       `transform` abre uma camada de composição (GPU) — a revisão F2
+       apontou isto como causa do palco 1:1 não bater com `montar.html`.
+       MEDIDO DE NOVO depois desta cura sozinha (provas/… não — medição
+       avulsa, ver retorno F1b): o diff não mudou (726979 → 726980 em
+       1.440.000, convite). Ou seja, o transform incondicional era um
+       defeito real — layout numa camada de composição continua errado
+       em princípio — mas NÃO era a causa do tamanho do diff medido.
+       Mantido corrigido pelo motivo próprio, e a causa de verdade é a
+       de baixo. */
+    UI.zoom.style.transform = (k === 1) ? 'none' : 'scale(' + k + ')';
     UI.marcas.style.width = (W * k) + 'px';
     UI.marcas.style.height = (H * k) + 'px';
+
+    /* A CAUSA DE VERDADE: `#meio{display:grid;place-items:center}` centra
+       `#envelope` por `(espaço-livre)/2`, que cai em MEIO PIXEL sempre que
+       a sobra é ímpar. Meio pixel de deslocamento muda em qual pixel
+       físico cada borda antialiasa — texto, o corte diagonal da cunha,
+       qualquer linha fina — e o palco para de bater com `montar.html`,
+       que nasce em (0,0) inteiro por `body{margin:0}` + `display:
+       inline-block`. Medido: `getBoundingClientRect().top` do envelope
+       saía em `.5` (356.5, 206.5...) nos dois formatos testados.
+       A cura não mexe no CSS de centralização (ela é o comportamento
+       CERTO até a fração) — mede DEPOIS do layout e encaixa o envelope
+       no pixel inteiro mais próximo com uma correção de `transform`
+       pequena o bastante para não mover nada visível. */
+    UI.envelope.style.transform = '';
+    var r = UI.envelope.getBoundingClientRect();
+    var dx = Math.round(r.left) - r.left;
+    var dy = Math.round(r.top) - r.top;
+    if (dx || dy) UI.envelope.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
   }
 
   /* retângulo da camada em px do NATIVO. Para texto isso vem do RENDER
