@@ -1,18 +1,18 @@
 # EditorHtml
 
-Editor de mouse para peças gráficas que vivem em código.
+Editor de peças gráficas que nascem em código, pra co-design entre você e um Agente de IA no mesmo arquivo.
 
 ---
 
 ## Se você é humano, leia aqui
 
-Toda peça gráfica que vive em código tem o mesmo problema: pra mudar uma vírgula de lugar, alguém precisa abrir o código. Mover um título dois centímetros pra baixo vira tarefa de programador, mesmo quando quem decide onde o título fica é a pessoa olhando a peça na tela, não quem escreveu a linha.
+Peças gráficas (cartaz, deck, post, thumb) cada vez mais nascem como código, geradas por um Agente de IA num processo de co-design com você. O agente mexe na peça escrevendo. Falta o lado que mexe olhando a tela: onde um título cai, o tamanho certo de uma fonte, o enquadramento de uma foto.
 
-Este editor inverte essa ordem. A peça continua sendo um arquivo de código, mas agora dá pra editar ela arrastando, como um Canva: você move o título com o mouse, ajusta o tamanho do texto, reposiciona a foto, e o editor grava a mudança de volta no arquivo original, tocando só o valor que você mexeu. Os comentários, a lógica, o histórico de decisões que já estava escrito ali continuam intactos.
+O EditorHTML é esse lado. Sobe um servidor local, um localhost, e abre o mesmo arquivo que o Agente edita: você mexe com o mouse e com atalhos de teclado (arrasta, redimensiona, ajusta fino com as setas, desfaz com Ctrl+Z), o Agente continua mexendo por código, no mesmo arquivo, no mesmo repositório. É co-design com os dois lados ativos ao mesmo tempo, sobre o mesmo material.
 
-Pensa num cartaz de evento já entregue, aprovado, versionado. Uma semana depois o horário muda e o título fica grande demais pro espaço que sobrou. Sem isso, alguém abre o código, calcula a porcentagem certa na mão, testa, erra, testa de novo. Com isso, abre o navegador, arrasta a caixa do título até caber, fecha a aba. O arquivo sai exatamente do jeito que um programador aprovaria.
+Ele é completamente editável e modular: quando falta um controle específico, você pede ao seu próprio Agente pra adicionar. Quer editar a saturação de um asset direto na interface? Peça pro Agente implementar essa funcionalidade no EditorHTML.
 
-O código não percebe que quem editou não sabe programar. E não precisa perceber.
+A garantia técnica por baixo disso: cada edição grava de volta só o valor que você tocou; o resto do arquivo, comentários e histórico de decisões inclusos, fica intacto.
 
 ---
 
