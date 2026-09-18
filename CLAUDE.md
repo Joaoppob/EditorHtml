@@ -156,6 +156,14 @@ dos sete ganchos de tema já documentados acima, um bloco `projeto`:
 | `cssExtra` | folhas extras (arquivo do projeto ou URL absoluta, ex. Google Fonts), carregadas depois da folha do núcleo |
 | `build` | opcional — `{ comando, args(slugs), cwd }`. Habilita o botão "Gerar esta peça" e a rota `/_api/gerar`; sem isso, nem aparece |
 
+Fora dos sete ganchos e fora do bloco `projeto`, o tema pode declarar mais uma
+chave, opcional: `textoInPlace` — array com os tipos que abrem a caixa de
+edição in-place ao duplo-clique (ex. `['tt', 'tx', 'kk', 'no']`). Sem ela, só
+`tt`/`tx` abrem, como sempre foi — projetos que precisam de mais tipos
+editáveis no palco declaram a lista inteira (um projeto real usa
+`['tt', 'tx', 'kk', 'no']`); o núcleo não inventa tipo de texto por conta
+própria.
+
 Ver exemplos completos, com comentários explicando cada decisão, nos temas
 reais de projetos que usam este editor (procure por `editorhtml.tema.js` na
 raiz de um projeto).

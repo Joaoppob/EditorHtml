@@ -34,16 +34,27 @@
       Camada que desaparece em silêncio faz alguém apagar trabalho sem
       saber que apagou.
 
-   O TEMA ENTRA POR SETE GANCHOS e por nenhum outro lugar. `window.TEMA`
-   ausente = editor funcional com os quatro tipos do núcleo. Nada aqui
-   conhece cor, família ou marca de projeto nenhum.
+   O TEMA ENTRA POR SETE GANCHOS e por nenhum outro lugar, mais uma chave
+   opcional fora dos sete — `textoInPlace` (achado F1b/F2, 2026-09-17):
+   QUAIS TIPOS abrem a caixa in-place ao duplo-clique é decisão do
+   VOCABULÁRIO do projeto, não do núcleo. `{tt:1,tx:1}` era fixo aqui —
+   um projeto real tem `kk`/`no` como texto (mono e nó-com-rótulo) e o
+   núcleo não tinha como saber disso. Sem a chave, o padrão continua sendo
+   exatamente `tt`/`tx` (nenhum tema hoje quebra). `window.TEMA` ausente =
+   editor funcional com os quatro tipos do núcleo. Nada aqui conhece cor,
+   família ou marca de projeto nenhum.
    ===================================================================== */
 'use strict';
 (function () {
 
   var TEMA = (typeof window !== 'undefined' && window.TEMA) || null;
   var NUCLEO = { tt: 1, tx: 1, obj: 1, reserva: 1 };
+  var TEXTO_DO_TEMA = (TEMA && Array.isArray(TEMA.textoInPlace)) ? TEMA.textoInPlace : null;
   var TEXTO = { tt: 1, tx: 1 };
+  if (TEXTO_DO_TEMA) {
+    TEXTO = {};
+    TEXTO_DO_TEMA.forEach(function (t) { if (typeof t === 'string' && t) TEXTO[t] = 1; });
+  }
   var GLOSA = { tt: 'título', tx: 'texto', obj: 'imagem', reserva: 'vão' };
 
   function trecho(s, n) {
@@ -1938,7 +1949,18 @@
   var CAIXA = { i: -1, no: null };
   var FECHANDO = false;
 
-  function ehTexto(c) { return !!(c && TEXTO[c.t] && conhecido(c)); }
+  /* `conhecido()` pergunta "algo aqui PINTA este tipo" (núcleo ou o
+     gancho `tipos` do tema) — pergunta errada para um projeto com
+     `montar.js` PRÓPRIO (CAD e outros projetos reais): lá `tipos` fica ausente DE
+     PROPÓSITO porque quem pinta é o montador do projeto, não o núcleo.
+     Quando o tema declarou `textoInPlace`, essa lista É a reivindicação
+     de dono — não precisa passar por `conhecido()` de novo. Tema que não
+     declarou a chave mantém o comportamento de sempre (`conhecido()`
+     como segunda cerca), então nada muda para quem já funcionava. */
+  function ehTexto(c) {
+    if (!c || !TEXTO[c.t]) return false;
+    return TEXTO_DO_TEMA ? true : conhecido(c);
+  }
 
   function editarNaCaixa(i) {
     if (!podeEditar()) {
