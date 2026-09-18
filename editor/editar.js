@@ -2086,9 +2086,13 @@
     var puro = dt.getData('text/plain');
     var vindo;
     if (html) {
-      var tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      vindo = TEXTO_CAMADA.daCaixa(tmp);
+      /* parseFromString cria um Document SEM browsing context: <img onerror>,
+         <svg onload> e afins não disparam porque não há contexto para
+         carregar recurso nem rodar handler. innerHTML num div comum, mesmo
+         desanexado do DOM, ainda pertence ao document vivo — dispara. Ver
+         provas/xss-clipboard.js. */
+      var docInerte = new DOMParser().parseFromString(html, 'text/html');
+      vindo = TEXTO_CAMADA.daCaixa(docInerte.body);
     } else {
       vindo = TEXTO_CAMADA.sanear(puro || '');
     }
