@@ -83,6 +83,7 @@ Dentro da raiz do repositório (onde está o `package.json` deste pacote):
 ```bash
 npx editorhtml servir              # serve pecas/ inteira, abre a lista
 npx editorhtml abrir <caminho.js>  # serve o diretório daquele arquivo, abre direto na peça
+npx editorhtml abrir --projeto <pasta-ou-config>   # abre um PROJETO EXTERNO — ver seção abaixo
 ```
 
 Porta: **8811 por padrão, e ela se desloca sozinha.** Se a 8811 estiver
@@ -127,6 +128,38 @@ passo-a-passo, este documento é só a visão geral.
 
 ---
 
+## Abrindo um projeto externo, sem converter peça nenhuma
+
+Alguns projetos já têm as peças declaradas no FORMATO DELES — script-global
+(`window.<G>.usos.push({...})`), não `module.exports = { pecas:[...] }`. Para
+esses, não se converte nada: o projeto declara um arquivo de config (nome
+livre, convenção `editorhtml.tema.js`, na raiz do projeto) e abre com:
+
+```bash
+npx editorhtml abrir --projeto <pasta-do-projeto>       # procura editorhtml.tema.js dentro
+npx editorhtml abrir --projeto <arquivo-de-config.js>   # ou aponta pro arquivo direto
+```
+
+O arquivo de config é um módulo CommonJS/UMD (roda tanto por `require()` no
+servidor quanto por `<script>` no navegador, como um tema) que exporta, além
+dos sete ganchos de tema já documentados acima, um bloco `projeto`:
+
+| Campo | Significado |
+|---|---|
+| `raiz` | diretório do projeto (tipicamente `__dirname`) |
+| `raizEstatica` | opcional; um raiz mais LARGO (ex. o diretório-pai), para servir arquivo irmão de `raiz` (um censo de assets, por exemplo). Todo caminho abaixo é declarado relativo a `raiz`; o servidor resolve e serve de onde o arquivo realmente estiver — `raiz` primeiro, `raizEstatica` depois |
+| `formato` | `'global'` (padrão — `window.<global>.usos.push`) ou `'commonjs'` (como `pecas/`, mas caminho explícito) |
+| `global` | nome do objeto global, quando `formato:'global'` |
+| `dadosScripts` | lista de arquivos que DECLARAM peças, na ordem de carga. A atribuição peça→arquivo é AUTOMÁTICA (medida pelo tamanho de `usos` antes/depois de cada script) — um arquivo por peça ou um arquivo por grupo, sem mapa escrito à mão. Pode ser sobreposta com `arquivoDe(peca)` |
+| `clienteScripts` | scripts extras que o NAVEGADOR precisa (dados de apoio, tabelas) antes do montador — não declaram peça |
+| `montar` | `{ arquivo, global, metodo }` — o montador PRÓPRIO do projeto. Ausente = usa `motor/montar.js` do núcleo |
+| `cssExtra` | folhas extras (arquivo do projeto ou URL absoluta, ex. Google Fonts), carregadas depois da folha do núcleo |
+| `build` | opcional — `{ comando, args(slugs), cwd }`. Habilita o botão "Gerar esta peça" e a rota `/_api/gerar`; sem isso, nem aparece |
+
+Ver exemplos completos, com comentários explicando cada decisão, nos temas
+reais de projetos que usam este editor (procure por `editorhtml.tema.js` na
+raiz de um projeto).
+
 ## Convertendo um HTML existente para peça
 
 Se o usuário tem um documento HTML pronto (feito por outro agente, outra
@@ -146,7 +179,8 @@ EditorHtml/
 ├── .claude/skills/         abrir-editor · converter-html · nova-peca
 ├── bin/editorhtml.js       CLI
 ├── converter/              HTML → declaração + prova de fidelidade
-├── editor/                 editar.html · editar.js · editar.css · escrita.js · servir.js
+├── editor/                 editar.html · editar.js · editar.css · escrita.js · servir.js ·
+│                           texto-camada.js (vocabulário fechado do texto — `<br>`,`<b>`,`<i>`,`[[..]]`)
 ├── motor/montar.js         os 4 tipos núcleo + carregador de tema
 ├── temas/                  temas opcionais (nenhum é obrigatório)
 ├── pecas/                  onde o editor enxerga as peças por padrão

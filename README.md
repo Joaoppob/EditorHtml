@@ -24,9 +24,10 @@ Contrato operacional. Leia `CLAUDE.md` na raiz deste repositório antes de qualq
 
 | Caminho | Função |
 |---|---|
-| `bin/editorhtml.js` | CLI. Comandos: `servir` e `abrir <caminho>`. |
-| `editor/servir.js` | servidor HTTP local, rotas `/_api/*` e estáticos. |
+| `bin/editorhtml.js` | CLI. Comandos: `servir`, `abrir <caminho>` e `abrir --projeto <pasta-ou-config>` (projeto externo, formato de origem, sem converter). |
+| `editor/servir.js` | servidor HTTP local, rotas `/_api/*` e estáticos. Com `--config`, também carrega o `projeto` (ver abaixo) e a rota `/_api/gerar`. |
 | `editor/escrita.js` | a escrita de volta no arquivo de origem. Troca só o token do valor tocado por texto, nunca reserializa o objeto. |
+| `editor/texto-camada.js` | o vocabulário fechado do texto (`<br>`,`<b>`,`<i>`,`[[..]]`) — usado pela caixa de texto in-place e pela colagem saneada. |
 | `editor/editar.html`, `editar.js`, `editar.css` | a interface do editor. |
 | `motor/montar.js` | lê a declaração e monta o DOM. Conhece só os 4 tipos núcleo (abaixo); qualquer outro tipo é tema. |
 | `temas/` | temas opcionais que pintam tipos fora do núcleo. Nenhum é obrigatório. |
@@ -73,6 +74,8 @@ Pré-condição para qualquer comando abaixo: estar na raiz deste repositório, 
   Confirme a URL que o comando IMPRIMIU. A porta pedida é 8811, mas o servidor anda para a próxima livre se ela estiver ocupada e anuncia onde subiu; não presuma a porta, leia a que saiu no terminal. Roteiro detalhado: skill `abrir-editor`.
 
 - Quando o usuário pedir para **abrir a lista geral de peças** ("abre o editor", sem apontar peça): rode `npx editorhtml servir`. Serve o diretório `pecas/` inteiro.
+
+- Quando o projeto **já declara peças no formato dele** (script-global, `window.<G>.usos.push(...)`, não `module.exports`): não converta nada. Rode `npx editorhtml abrir --projeto <pasta-do-projeto>` — ele lê `editorhtml.tema.js` da raiz do projeto (ou aponte direto pro arquivo de config) e abre lendo/gravando no formato de origem. Ver `CLAUDE.md` § "Abrindo um projeto externo" para o contrato completo do bloco `projeto`.
 
 - Quando o usuário trouxer um **HTML pronto e quiser editá-lo aqui**: use a skill `converter-html`. Não existe conversor automático — o agente é o parser, lê o HTML e escreve a declaração à mão, registrando o que não deu para converter em vez de fingir fidelidade total.
 
