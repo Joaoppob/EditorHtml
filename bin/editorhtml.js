@@ -81,6 +81,10 @@ editorhtml — editor de mouse para peças HTML declarativas
 Uso:
   npx editorhtml servir              serve pecas/ e abre a lista de peças
   npx editorhtml abrir <caminho>     serve o diretório do arquivo e abre direto naquela peça
+  npx editorhtml abrir --projeto <pasta-ou-config>
+                                      abre um projeto EXTERNO no formato de origem dele,
+                                      sem converter peça nenhuma (lê editorhtml.tema.js
+                                      da pasta, ou o arquivo de config apontado direto)
   npx editorhtml --help              esta mensagem
 
 Porta pedida: ${PORTA_PEDIDA} (o servidor anda para a próxima livre se estiver ocupada,
@@ -135,7 +139,7 @@ function conferirIdentidade(anuncio, token, pronto, falhou) {
    O filho tem stdout em `pipe` (e não `inherit`) porque o anúncio é lido daqui;
    tudo o que ele imprime continua aparecendo para quem chamou, repassado linha
    a linha, menos a linha-contrato, que é ruído para gente.                     */
-function subirServidor(dirPecas, aoSubir) {
+function subirServidor(argsExtra, aoSubir) {
   const caminhoServir = path.join(RAIZ, 'editor', 'servir.js');
   if (!fs.existsSync(caminhoServir)) {
     console.error(
@@ -149,7 +153,7 @@ function subirServidor(dirPecas, aoSubir) {
   const token = crypto.randomBytes(9).toString('hex');
   const processo = spawn(
     process.execPath,
-    [caminhoServir, String(PORTA_PEDIDA), dirPecas],
+    [caminhoServir, String(PORTA_PEDIDA), ...argsExtra],
     { stdio: ['ignore', 'pipe', 'pipe'],
       env: Object.assign({}, process.env, { EDITORHTML_TOKEN: token }) }
   );
@@ -216,7 +220,7 @@ function anunciarAoUsuario(url, oQue) {
 }
 
 function comandoServir() {
-  subirServidor(DIR_PECAS_PADRAO, (a) => {
+  subirServidor([DIR_PECAS_PADRAO], (a) => {
     anunciarAoUsuario(a.url, 'servindo ' + a.pecas);
     abrirNavegador(a.url);
   });
@@ -235,10 +239,53 @@ function comandoAbrir(caminhoArg) {
   const dirAlvo = path.dirname(caminhoAbsoluto);
   const nomeSemExtensao = path.basename(caminhoAbsoluto, path.extname(caminhoAbsoluto));
 
-  subirServidor(dirAlvo, (a) => {
+  subirServidor([dirAlvo], (a) => {
     const url = a.url + '?' + PARAM_ABRIR + '=' + encodeURIComponent(nomeSemExtensao);
     anunciarAoUsuario(url, 'abrindo ' + nomeSemExtensao + ' de ' + a.pecas);
     abrirNavegador(url);
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   ABRIR UM PROJETO EXTERNO, SEM CONVERTER PEÇA NENHUMA.
+
+     npx editorhtml abrir --projeto <pasta>            (procura editorhtml.tema.js dentro)
+     npx editorhtml abrir --projeto <arquivo-tema.js>   (usa esse arquivo direto)
+
+   O argumento pode ser a PASTA do projeto (convenção: `editorhtml.tema.js`
+   na raiz dela) ou o arquivo de config em si, para quem prefere nomear
+   outra coisa ou ter mais de um config na mesma pasta (dois projetos
+   irmãos, por exemplo). O servidor faz `require()` desse arquivo — ele
+   declara `projeto` (como carregar/gravar as peças no formato de origem)
+   e, opcionalmente, os sete ganchos de tema. Ver `editor/servir.js` e
+   `CLAUDE.md` § o contrato de projeto. */
+const NOME_CONFIG_PADRAO = 'editorhtml.tema.js';
+
+function comandoAbrirProjeto(caminhoArg) {
+  if (!caminhoArg) {
+    console.error('[editorhtml] uso: npx editorhtml abrir --projeto <pasta-ou-arquivo-de-config>');
+    process.exit(1);
+  }
+  const alvo = path.resolve(process.cwd(), caminhoArg);
+  if (!fs.existsSync(alvo)) {
+    console.error(`[editorhtml] não encontrei: ${alvo}`);
+    process.exit(1);
+  }
+  const ehDir = fs.statSync(alvo).isDirectory();
+  const caminhoConfig = ehDir ? path.join(alvo, NOME_CONFIG_PADRAO) : alvo;
+  if (!fs.existsSync(caminhoConfig)) {
+    console.error(`[editorhtml] não achei ${ehDir ? NOME_CONFIG_PADRAO + ' dentro de ' + alvo : caminhoConfig}.\n` +
+      (ehDir
+        ? `Crie ${NOME_CONFIG_PADRAO} na raiz do projeto declarando \`projeto\` ` +
+          '(scripts, nome do global, arquivo de cada peça, montador) — ou aponte direto ' +
+          'para o arquivo de config: npx editorhtml abrir --projeto <arquivo>.'
+        : 'O caminho não existe.'));
+    process.exit(1);
+  }
+
+  subirServidor(['--config', caminhoConfig], (a) => {
+    anunciarAoUsuario(a.url, 'abrindo o projeto de ' + caminhoConfig);
+    abrirNavegador(a.url);
   });
 }
 
@@ -250,7 +297,11 @@ function main() {
     process.exit(0);
   }
   if (comando === 'servir') { comandoServir(); return; }
-  if (comando === 'abrir') { comandoAbrir(resto[0]); return; }
+  if (comando === 'abrir') {
+    if (resto[0] === '--projeto') { comandoAbrirProjeto(resto[1]); return; }
+    comandoAbrir(resto[0]);
+    return;
+  }
 
   console.error(`[editorhtml] comando desconhecido: "${comando}"`);
   ajuda();

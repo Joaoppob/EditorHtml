@@ -8,7 +8,9 @@
      `/editor/`, e a imagem que existe no disco apareceria como faltando —
      um estado de erro fabricado pela ferramenta, sobre um arquivo certo. -->
 <base href="/">
-<link rel="stylesheet" href="/motor/peca.css">
+<!-- `/motor/peca.css` é carregado pelo script no fim do corpo — junto
+     com o CSS extra do projeto, se houver, na ordem certa (núcleo antes,
+     projeto por cima). -->
 <link rel="stylesheet" href="/editor/editar.css">
 </head>
 <body>
@@ -51,6 +53,13 @@
       <input type="checkbox" id="chk-auto" checked> salvar sozinho
     </label>
     <span class="sep" role="presentation"></span>
+    <!-- GERAR — só aparece quando o projeto declara um build em
+         `editorhtml.tema.js` (`projeto.build`); `iniciar()` mostra/esconde
+         a partir do `podeGerar` do inventário. Sem build declarado, o
+         núcleo não sabe o que "gerar" quer dizer e o botão fica oculto,
+         nunca visível-e-quebrado. -->
+    <button id="btn-gerar" hidden title="Roda o build desta peça, declarado pelo projeto">⚙ Gerar esta peça</button>
+    <span class="sep" role="presentation"></span>
     <!-- O SELO É O ÚNICO CANAL DE ESTADO DA ESCRITA, e por isso ele é um
          elemento próprio, sempre visível, com `aria-live` — não um texto
          que divide espaço com outra coisa. -->
@@ -73,9 +82,15 @@
         <li><kbd>Delete</kbd> apaga a camada marcada</li>
         <li><kbd>Tab</kbd> anda na pilha · <kbd>Esc</kbd> desmarca</li>
         <li><kbd>&larr;&uarr;&darr;&rarr;</kbd> move 0,1% · com <kbd>Shift</kbd> 1%</li>
+        <li><kbd>PageUp</kbd>/<kbd>PageDown</kbd> sobe/desce um nível na pilha ·
+            com <kbd>Shift</kbd> vai à frente de tudo/ao fundo</li>
         <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz (e grava a volta)</li>
         <li>arrastando: gruda no alinhamento das outras camadas ·
             <kbd>Alt</kbd> solta a grude (para sangrar de propósito)</li>
+        <li><kbd>duplo clique</kbd> num texto edita na própria peça ·
+            <kbd>Enter</kbd> quebra a linha (<code>&lt;br&gt;</code>)</li>
+        <li><kbd>Ctrl</kbd>+<kbd>M</kbd> marca o trecho selecionado
+            (<code>[[assim]]</code>) · <kbd>Esc</kbd> fecha a caixa</li>
         <li class="obs">as letras não valem enquanto você digita num campo</li>
       </ul>
     </div>
@@ -128,42 +143,102 @@
   </div>
 </div>
 
-<script src="/motor/montar.js"></script>
 <!-- ===================================================================
-     O CARREGADOR DE TEMA. Ele existe porque o nome do tema mora no
-     servidor, não nesta página: pendurar `<script src="temas/fulano/…">`
-     aqui obrigaria a editar o HTML a cada troca de tema, que é
-     exatamente o acoplamento que a linha de corte tirou.
+     O CARREGADOR. Tudo o que a peça precisa para montar — motor, tema,
+     e (com `--config`) os scripts do PROJETO no formato DELE — é lido do
+     `/_api/inventario` e carregado em série, nesta ordem fixa:
 
-     TEMA AUSENTE OU QUEBRADO NÃO IMPEDE O EDITOR DE ABRIR. Se o `<script>`
-     do tema falhar (404, erro de sintaxe), `window.TEMA` fica indefinido e
-     o editor sobe com os quatro tipos do núcleo — e diz isso na linha de
-     estado, em vez de mostrar página branca.
-     =================================================================== -->
+       1. `/motor/peca.css` (base neutra do núcleo — sempre; um projeto
+          pode sobrescrever em cima, nunca precisa dela por baixo)
+       2. os `dadosScripts` do projeto (as PEÇAS, no formato de origem —
+          só existem com `--config`)
+       3. os `clienteScripts` do projeto (apoio do montador, ex. um censo
+          de assets que o `montar.js` do projeto espera encontrar)
+       4. o `cssExtra` do projeto (a folha DELE, por cima da do núcleo)
+       5. o montador — o do PROJETO se `--config` declarou um, senão
+          `/motor/montar.js`
+       6. o CSS e o script do TEMA (os sete ganchos — opcional nos dois
+          modos)
+       7. `texto-camada.js` e por último `editar.js`
+
+     NADA AQUI CONVERTE PEÇA NENHUMA — os scripts de 2 a 5 são os
+     arquivos do projeto, servidos como estão. SEM `--config`, os passos
+     2-4 não existem e o passo 5 é sempre o motor do núcleo — o
+     comportamento é idêntico ao de antes desta capacidade existir.
+
+     QUALQUER ETAPA QUE FALHAR (404, erro de sintaxe) NÃO TRAVA A
+     CADEIA: o editor sobe mesmo assim, com o que conseguiu carregar, e
+     diz o motivo na linha de estado em vez de ficar em branco para
+     sempre — mesma doutrina do tema ausente, agora também para peça e
+     montador do projeto. -->
 <script>
 (function () {
   'use strict';
-  function subir() {
-    var s = document.createElement('script');
-    s.src = '/editor/editar.js';
-    document.body.appendChild(s);
+  function carregarJs(src) {
+    return new Promise(function (ok) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = function () { ok(); };
+      s.onerror = function () { console.error('[editorhtml] não carregou ' + src); ok(); };
+      document.body.appendChild(s);
+    });
   }
+  function linkCss(href) {
+    var l = document.createElement('link');
+    l.rel = 'stylesheet'; l.href = href;
+    document.head.appendChild(l);
+  }
+  function nucleoFinal() {
+    /* TEXTO_CAMADA ANTES DE editar.js — a caixa de texto in-place e a
+       colagem saneada dependem de `window.TEXTO_CAMADA` já existir. */
+    carregarJs('/editor/texto-camada.js').then(function () {
+      return carregarJs('/editor/editar.js');
+    });
+  }
+
   fetch('/_api/inventario').then(function (r) { return r.json(); }).then(function (j) {
-    if (!j || !j.tema || !j.tema.nome) return subir();
-    if (j.tema.css) {
-      var l = document.createElement('link');
-      l.rel = 'stylesheet'; l.href = j.tema.css;
-      document.head.appendChild(l);
+    var cadeia = Promise.resolve();
+    var proj = j && j.projeto;
+    var temMontadorProprio = !!(proj && proj.montar && proj.montar.url);
+
+    /* `/motor/peca.css` SÓ QUANDO O MOTOR É O DO NÚCLEO. Medido por
+       fidelidade pixel a pixel contra `montar.html` do CAD: carregar esta
+       folha SEMPRE (mesmo com um projeto trazendo `montar.js` e `peca.css`
+       PRÓPRIOS) vazava regra do núcleo (`.pc .tt{letter-spacing:-.03em}`)
+       para dentro do `.tt` do projeto — a mesma especificidade da regra
+       dele, então o vazamento só se cala quando a folha do núcleo nem
+       entra no cascateamento. Sem `montar` próprio, o comportamento é o
+       de sempre: o núcleo pinta, e a folha dele é a base. */
+    if (!temMontadorProprio) linkCss('/motor/peca.css');
+
+    if (proj) {
+      (proj.dadosScripts || []).forEach(function (src) {
+        cadeia = cadeia.then(function () { return carregarJs(src); });
+      });
+      (proj.clienteScripts || []).forEach(function (src) {
+        cadeia = cadeia.then(function () { return carregarJs(src); });
+      });
+      (proj.cssExtra || []).forEach(linkCss);
+      cadeia = cadeia.then(function () {
+        return carregarJs(temMontadorProprio ? proj.montar.url : '/motor/montar.js');
+      });
+    } else {
+      cadeia = cadeia.then(function () { return carregarJs('/motor/montar.js'); });
     }
-    var t = document.createElement('script');
-    t.src = '/temas/' + j.tema.nome + '/tema.js';
-    /* SUBIR NOS DOIS CAMINHOS. Sem o `onerror`, um tema que não carrega
-       deixaria a página parada para sempre — silêncio lido como
-       "carregando", que é o pior dos dois mundos. */
-    t.onload = subir;
-    t.onerror = subir;
-    document.head.appendChild(t);
-  }).catch(subir);
+
+    if (j && j.tema && j.tema.css) linkCss(j.tema.css);
+    var scriptTema = (j && j.tema && j.tema.script) ||
+      (j && j.tema && j.tema.nome ? '/temas/' + j.tema.nome + '/tema.js' : null);
+    if (scriptTema) cadeia = cadeia.then(function () { return carregarJs(scriptTema); });
+
+    cadeia.then(nucleoFinal);
+  }).catch(function () {
+    /* SEM SERVIDOR/INVENTÁRIO, o editor ainda sobe com o motor do núcleo
+       — é `iniciar()`, em `editar.js`, quem diz "sem servidor" na tela;
+       aqui só garantimos que o script que sabe dizer isso carregou. */
+    linkCss('/motor/peca.css');
+    carregarJs('/motor/montar.js').then(nucleoFinal);
+  });
 })();
 </script>
 </body></html>

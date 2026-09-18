@@ -115,7 +115,7 @@
     ciclo: { x: -9e9, y: -9e9, n: 0 }, arrastando: null,
     auto: true, timer: null, salvando: false, refila: false,
     bloqueio: null, ultimoSalvo: null, lendo: false, deMemoria: false,
-    avisoGesto: null, guias: [], previasFalhas: []
+    avisoGesto: null, guias: [], previasFalhas: [], podeGerar: false
   };
 
   var $ = function (s) { return document.querySelector(s); };
@@ -1880,6 +1880,342 @@
     if (ta) { ta.focus(); ta.select(); }
   }
 
+  /* ==================================================================
+     PageUp/PageDown — muda o NÍVEL de pintura da camada marcada.
+     `z` é ordem de pintura, não ordem de leitura — e sem um jeito de mudar
+     `z` pelo teclado, a única forma de "trazer pra frente" era editar o
+     número no painel sabendo de antemão qual `z` bate a camada de cima.
+     PageUp/PageDown (e não `[`/`]`) porque no teclado ABNT2 os colchetes
+     moram em teclas que variam de layout; PageUp é a mesma tecla em todos.
+     Genérica por construção: só mexe em `z`, nenhum vocabulário de tema.
+     ================================================================== */
+  function mudarNivel(para) {
+    if (E.sel < 0 || !E.L || E.somenteLeitura || E.bloqueio) return;
+    var i = E.sel, c = E.L[i], o = ordemDePintura();
+    var at = o.findIndex(function (x) { return x.i === i; });
+    var ult = o.length - 1, destino;
+    if (para === 'topo') destino = ult;
+    else if (para === 'fundo') destino = 0;
+    else if (para === 'sobe') destino = at + 1;
+    else destino = at - 1;
+    if (destino > ult || destino < 0 || destino === at) {
+      estado(at === ult ? 'já está na frente de tudo' : 'já está no fundo', '');
+      return;
+    }
+    var nova = o.map(function (x) { return x.i; });
+    nova.splice(at, 1);
+    nova.splice(destino, 0, i);
+    instantaneo();
+    nova.forEach(function (k, rank) {
+      var efetivo = E.L[k].z == null ? 0 : +E.L[k].z;
+      if (efetivo !== rank + 1) E.L[k].z = rank + 1;
+    });
+    remontar(true);
+    var o2 = ordemDePintura();
+    var p2 = o2.findIndex(function (x) { return x.i === i; });
+    estado('nível: ' + rotulo(c, i).titulo + ' agora é a ' + (p2 + 1) + 'ª de ' + o2.length +
+      ' (1 = fundo) · Ctrl+Z desfaz', 'alerta');
+  }
+
+  /* ==================================================================
+     CAIXA DE TEXTO IN-PLACE — editar o `tx` diretamente sobre a peça,
+     em vez de só pelo textarea do painel.
+
+     Genérica por construção: usa `TEXTO_CAMADA` (núcleo,
+     `editor/texto-camada.js`) para o vocabulário fechado
+     (`<br>`,`<b>`,`<i>`,`[[..]]`), e nada de tema.
+
+     A CORREÇÃO DE CURSOR (`posicaoMaisProxima`/`caixaAjustarCursor`) — a
+     caixa da camada é mais larga que os glifos, então há faixa clicável
+     antes da primeira letra e depois da última; nessas pontas o Chrome
+     ancora no próprio DIV, e `anchorOffset:1` num DIV quer dizer "depois
+     do primeiro filho" (o FIM do texto). Clicar no começo da linha mandava
+     o cursor pro fim. A cura não adivinha intenção: só quando a seleção
+     ancorou no CONTÊINER, procura entre as posições de cursor REAIS
+     (medidas com `Range`, glifo a glifo) a mais próxima do ponto clicado.
+     ================================================================== */
+  var ZWSP = String.fromCharCode(0x200b);
+  var CAIXA = { i: -1, no: null };
+  var FECHANDO = false;
+
+  function ehTexto(c) { return !!(c && TEXTO[c.t] && conhecido(c)); }
+
+  function editarNaCaixa(i) {
+    if (!podeEditar()) {
+      estado('não dá para editar agora — ' +
+        (E.somenteLeitura || 'a gravação está recusada'), 'alerta');
+      return;
+    }
+    if (typeof TEXTO_CAMADA === 'undefined' || !TEXTO_CAMADA) {
+      estado('a caixa in-place precisa de `editor/texto-camada.js` — não carregou', 'erro');
+      return;
+    }
+    var c = E.L[i];
+    if (!ehTexto(c)) return;
+    var no = E.nos && E.nos[i];
+    if (!no) { estado('não achei o nó desta camada no palco', 'erro'); return; }
+
+    fecharCaixa(true);
+    CAIXA.i = i; CAIXA.no = no;
+    no.setAttribute('contenteditable', 'true');
+    no.setAttribute('spellcheck', 'false');
+    no.classList.add('editando');
+    /* MODO TEXTO: as alças de geometria saem do caminho (ver `editar.css`).
+       Não é enfeite — a alça `w` cobre o primeiro caractere. */
+    if (UI.envelope) UI.envelope.classList.add('caixa-aberta');
+    no.focus();
+    var sel = window.getSelection(), r = document.createRange();
+    r.selectNodeContents(no); r.collapse(false);
+    sel.removeAllRanges(); sel.addRange(r);
+
+    no.addEventListener('keydown', caixaTecla);
+    no.addEventListener('paste', caixaCola);
+    no.addEventListener('mouseup', caixaAjustarCursor);
+    no.addEventListener('blur', caixaSaiu);
+
+    estado('editando na peça: clique onde quiser escrever, arraste para selecionar, ' +
+      'Enter quebra a linha, Ctrl+M marca o trecho, Esc fecha (as alças de ' +
+      'tamanho ficam desligadas enquanto a caixa está aberta)', '');
+    desenharMarcas();
+  }
+
+  function caixaTecla(ev) {
+    if (ev.key === 'Escape') { ev.preventDefault(); fecharCaixa(); return; }
+    if (ev.key === 'Enter') {
+      /* ENTER É `<br>`, E SÓ `<br>`. Sem isto o contenteditable inventa
+         `<div>` ou `<p>` por conta própria — e o vocabulário da declaração
+         não tem nem um nem outro. */
+      ev.preventDefault();
+      var sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      var r = sel.getRangeAt(0);
+      r.deleteContents();
+      var br = document.createElement('br');
+      r.insertNode(br);
+      var fim = document.createTextNode(ZWSP);
+      br.parentNode.insertBefore(fim, br.nextSibling);
+      var r2 = document.createRange();
+      r2.setStart(fim, fim.length); r2.collapse(true);
+      sel.removeAllRanges(); sel.addRange(r2);
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'm') {
+      ev.preventDefault(); marcarTrecho(); return;
+    }
+  }
+
+  /* O MARCADOR FECHA O CICLO: `[[palavra]]` na declaração vira `.mk` na
+     tela, e a leitura de volta devolve `[[palavra]]`. Sem um gesto para
+     criar um, o marcador só existiria para quem edita o arquivo a mão. */
+  function marcarTrecho() {
+    var sel = window.getSelection();
+    if (!sel.rangeCount || sel.isCollapsed) {
+      estado('selecione o trecho antes de marcar com Ctrl+M', 'alerta');
+      return;
+    }
+    var r = sel.getRangeAt(0);
+    var sp = document.createElement('span');
+    sp.className = 'mk';
+    try { r.surroundContents(sp); }
+    catch (e) { sp.appendChild(r.extractContents()); r.insertNode(sp); }
+    var r2 = document.createRange();
+    r2.selectNodeContents(sp); r2.collapse(false);
+    sel.removeAllRanges(); sel.addRange(r2);
+    estado('trecho marcado — vai para a declaração como [[' +
+      String(sp.textContent || '').slice(0, 18) + ']]', '');
+  }
+
+  /* A COLAGEM ENTRA JÁ LIMPA. Sanear só no fecho também funcionaria, mas
+     até lá a tela mostraria uma formatação que não vai existir — quer
+     dizer, mentiria por alguns segundos. */
+  function caixaCola(ev) {
+    ev.preventDefault();
+    var dt = ev.clipboardData;
+    if (!dt) return;
+    var html = dt.getData('text/html');
+    var puro = dt.getData('text/plain');
+    var vindo;
+    if (html) {
+      var tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      vindo = TEXTO_CAMADA.daCaixa(tmp);
+    } else {
+      vindo = TEXTO_CAMADA.sanear(puro || '');
+    }
+    var frag = document.createElement('div');
+    frag.innerHTML = TEXTO_CAMADA.paraCaixa(vindo.texto);
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    var r = sel.getRangeAt(0);
+    r.deleteContents();
+    var ult = null, n;
+    while ((n = frag.firstChild)) {
+      ult = n; r.insertNode(n); r.setStartAfter(n); r.collapse(true);
+    }
+    if (ult) {
+      var r2 = document.createRange();
+      r2.setStartAfter(ult); r2.collapse(true);
+      sel.removeAllRanges(); sel.addRange(r2);
+    }
+    var d = vindo.descartes || [];
+    estado(d.length
+      ? ('colado SEM a formatação que não cabe na declaração: ' +
+         d.slice(0, 6).join(', ') + '  |  o texto ficou, a marcação saiu')
+      : 'colado — nada precisou ser descartado',
+      d.length ? 'alerta' : '');
+  }
+
+  function posicaoMaisProxima(no, x, y) {
+    var achado = null, menor = Infinity;
+    var anda = function (n) {
+      if (n.nodeType === 3) {
+        for (var k = 0; k <= n.nodeValue.length; k++) {
+          var r = document.createRange();
+          r.setStart(n, k); r.setEnd(n, k);
+          var c = r.getBoundingClientRect();
+          /* distância com a LINHA pesando mais que a coluna: num texto de
+             várias linhas, o vizinho certo é o da linha clicada. */
+          var dy = Math.max(0, Math.max(c.top - y, y - c.bottom));
+          var d = Math.abs(c.left - x) + dy * 1000;
+          if (d < menor) { menor = d; achado = { no: n, off: k }; }
+        }
+        return;
+      }
+      for (var j = 0; j < n.childNodes.length; j++) anda(n.childNodes[j]);
+    };
+    anda(no);
+    return achado;
+  }
+
+  function caixaAjustarCursor(ev) {
+    var no = CAIXA.no;
+    if (!no) return;
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !sel.isCollapsed) return;   /* arrasto: é do usuário */
+    if (sel.anchorNode !== no) return;                          /* o navegador acertou */
+    var alvo = posicaoMaisProxima(no, ev.clientX, ev.clientY);
+    if (!alvo) return;
+    var r = document.createRange();
+    r.setStart(alvo.no, alvo.off); r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+  }
+
+  function caixaSaiu() { fecharCaixa(); }
+
+  function fecharCaixa(silencioso) {
+    var i = CAIXA.i, no = CAIXA.no;
+    if (i < 0 || !no || FECHANDO) return;
+    FECHANDO = true;
+    CAIXA.i = -1; CAIXA.no = null;
+    no.removeEventListener('keydown', caixaTecla);
+    no.removeEventListener('paste', caixaCola);
+    no.removeEventListener('mouseup', caixaAjustarCursor);
+    no.removeEventListener('blur', caixaSaiu);
+    var lido = TEXTO_CAMADA.daCaixa(no);
+    no.removeAttribute('contenteditable');
+    no.classList.remove('editando');
+    if (UI.envelope) UI.envelope.classList.remove('caixa-aberta');
+    var c = E.L[i];
+    if (!c) { FECHANDO = false; return; }
+    var novo = String(lido.texto).split(ZWSP).join('');
+    if (novo === String(c.tx == null ? '' : c.tx)) {
+      if (!silencioso) estado('texto sem alteração', '');
+      FECHANDO = false;
+      remontar();
+      return;
+    }
+    var antesVazio = !!vazia(i);
+    instantaneo();
+    c.tx = novo;
+    FECHANDO = false;
+    remontar();
+    if (silencioso) return;
+    var d = lido.descartes || [];
+    if (!antesVazio && !!vazia(i)) {
+      E.avisoGesto = 'a camada ' + rotulo(c, i).titulo + ' ficou SEM TEXTO — ' +
+        'ela some da peça. Ctrl+Z desfaz.';
+      estado(E.avisoGesto, 'alerta');
+      return;
+    }
+    estado('texto gravado na camada ' + rotulo(c, i).titulo +
+      (d.length ? '  |  DESCARTEI o que não cabe na declaração: ' +
+        d.slice(0, 6).join(', ') : ''),
+      d.length ? 'alerta' : '');
+  }
+
+  /* ==================================================================
+     GERAR — botão opcional que roda o build DECLARADO pelo projeto
+     (`editorhtml.tema.js` → `projeto.build`). O núcleo NÃO sabe o que é
+     "build": ele só pede `/_api/gerar` com o slug aberto, mostra o log e
+     o resultado. Sem `build` declarado o servidor recusa a rota e o botão
+     nem aparece (`E.podeGerar`, lido do inventário). Só o genérico
+     "gerar esta peça" entra no núcleo — uma lista fixa de slugs (para
+     "gerar todas de um grupo") é vocabulário de projeto, não do editor,
+     e fica de fora daqui por decisão, não por esquecimento.
+     ================================================================== */
+  var BUILD = { vigia: null };
+
+  function pedirBuild(slugs) {
+    if (E.bloqueio) { estado('não gero com a escrita bloqueada — resolva a recusa primeiro', 'erro'); return; }
+    var pendente = paraGravar().length;
+    if (pendente && !E.somenteLeitura && !E.deMemoria) {
+      estado('gravando antes de gerar…', 'trabalhando');
+      salvar(true);
+      setTimeout(function () { pedirBuild(slugs); }, 900);
+      return;
+    }
+    if (UI.gerar) UI.gerar.disabled = true;
+    estado('pedindo o build de ' + slugs.length + ' peça(s)…', 'trabalhando');
+    fetch('/_api/gerar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slugs: slugs }) })
+      .then(function (r) { return r.json().then(function (j) { return { cod: r.status, j: j }; }); })
+      .then(function (x) {
+        if (x.cod !== 202) {
+          if (UI.gerar) UI.gerar.disabled = false;
+          estado('não gerei: ' + (x.j.msg || x.j.erro), 'erro');
+          return;
+        }
+        vigiarBuild();
+      })
+      .catch(function (e) {
+        if (UI.gerar) UI.gerar.disabled = false;
+        estado('não gerei: ' + e.message, 'erro');
+      });
+  }
+  function pintarBuild(j) {
+    if (j.rodando) {
+      if (UI.gerar) UI.gerar.disabled = true;
+      var ult = (j.log || []).filter(function (l) { return l.indexOf('$ ') !== 0; }).pop();
+      estado('gerando ' + j.slugs.length + ' peça(s) · ' + (j.passo || '') + (ult ? ' · ' + ult : ''), 'trabalhando');
+      return true;
+    }
+    if (UI.gerar) UI.gerar.disabled = false;
+    if (j.sucesso === true) {
+      estado('build pronto · ' + j.slugs.join(', ') + ' — o PNG no disco agora é esta declaração', '');
+    } else if (j.sucesso === false) {
+      /* FALHA NÃO VIRA LINHA DE RODAPÉ: o log inteiro vai pro cartaz, que
+         cobre o palco. Build que falha em silêncio devolve peça velha. */
+      cartaz('o build falhou em: ' + (j.passo || '?'),
+        (j.log || []).slice(-14).join('\n'),
+        { rotulo: 'Voltar à peça', fn: semCartaz });
+    }
+    return false;
+  }
+  function olharBuild() {
+    if (!E.podeGerar) return;
+    fetch('/_api/gerar').then(function (r) { return r.json(); }).then(function (j) {
+      if (j && j.rodando) vigiarBuild();
+    }).catch(function () {});
+  }
+  function vigiarBuild() {
+    if (BUILD.vigia) return;
+    BUILD.vigia = setInterval(function () {
+      fetch('/_api/gerar').then(function (r) { return r.json(); }).then(function (j) {
+        if (!pintarBuild(j)) { clearInterval(BUILD.vigia); BUILD.vigia = null; }
+      }).catch(function () { clearInterval(BUILD.vigia); BUILD.vigia = null; });
+    }, 1200);
+  }
+
   /* ================================================================== */
   /* TECLADO. A peça toda tem de ser alcançável sem mouse — e o passo do
      teclado é o que dá precisão que o arrasto não dá.                   */
@@ -1909,6 +2245,12 @@
       return;
     }
     if (!E.L || E.sel < 0 || E.somenteLeitura || E.bloqueio) return;
+    /* PageUp/PageDown e não `[`/`]`: ver `mudarNivel` acima. */
+    if (ev.key === 'PageUp' || ev.key === 'PageDown') {
+      ev.preventDefault();
+      mudarNivel(ev.key === 'PageUp' ? (ev.shiftKey ? 'topo' : 'sobe') : (ev.shiftKey ? 'fundo' : 'desce'));
+      return;
+    }
     var d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
     if (!d) return;
     ev.preventDefault();
@@ -1939,6 +2281,10 @@
     UI.bloqueio = $('#bloqueio'); UI.bloqTit = $('#bloqueio-tit');
     UI.bloqTxt = $('#bloqueio-txt'); UI.bloqAcoes = $('#bloqueio-acoes');
     UI.bloqCola = $('#bloqueio-cola');
+    /* opcional: só existe no HTML se o tema/config quiser o botão visível
+       desde já — `iniciar()` decide se ele aparece, a partir do inventário. */
+    UI.gerar = $('#btn-gerar');
+    if (UI.gerar) UI.gerar.onclick = function () { pedirBuild([E.slug]); };
 
     UI.abaCamadas.onclick = function () { trocarAba('camadas'); };
     UI.abaEstante.onclick = function () { trocarAba('estante'); };
@@ -1973,6 +2319,18 @@
     UI.gravar.onclick = gravar;
     UI.patch.onclick = verPatch;
     UI.sel.onchange = function () { abrir(UI.sel.value); };
+
+    /* DUPLO CLIQUE ENTRA NA CAIXA in-place. Fica nas MARCAS e não no palco
+       porque o palco é a peça montada: escutar lá competiria com o
+       arrasto, e o gesto de texto tem de ser deliberado. */
+    UI.marcas.addEventListener('dblclick', function (ev) {
+      if (E.sel < 0) return;
+      if (!ehTexto(E.L[E.sel])) {
+        estado('esta camada não tem texto para editar', ''); return;
+      }
+      ev.preventDefault();
+      editarNaCaixa(E.sel);
+    });
 
     /* marcar e arrastar */
     UI.marcas.style.pointerEvents = 'none';
@@ -2009,6 +2367,12 @@
       E.usos = j.usos || [];
       E.campos = j.campos || E.campos;
       E.problemas = j.problemas || [];
+      /* O BOTÃO GERAR SÓ EXISTE SE O PROJETO DECLAROU UM BUILD
+         (`editorhtml.tema.js` → `projeto.build`). Sem isso `/_api/gerar`
+         nem responde, e um botão que sempre erra é pior que ausente. */
+      E.podeGerar = !!j.podeGerar;
+      if (UI.gerar) { UI.gerar.hidden = !E.podeGerar; }
+      if (E.podeGerar) olharBuild();
 
       /* ARQUIVO QUE NÃO CARREGOU APARECE. Some da lista e quem escreveu
          conclui que apagou a peça sem querer. */
@@ -2096,5 +2460,8 @@
                       escolher: escolherPressionar, candidatos: candidatos, rotulo: rotulo,
                       apagarCamada: apagarCamada, novaCaixaDeTexto: novaCaixaDeTexto,
                       trocarAba: trocarAba, salvar: salvar, paraGravar: paraGravar,
-                      conhecido: conhecido, tema: TEMA };
+                      conhecido: conhecido, tema: TEMA,
+                      mudarNivel: mudarNivel, ehTexto: ehTexto, editarNaCaixa: editarNaCaixa,
+                      fecharCaixa: fecharCaixa, marcarTrecho: marcarTrecho,
+                      pedirBuild: pedirBuild };
 })();
